@@ -86,7 +86,7 @@ export default function Timekeeping() {
             <button className="btn-ghost sm" onClick={goToday}>Today</button>
           )}
         </div>
-        <button className="btn-icon-lg" onClick={nextDay} disabled={isToday}>›</button>
+        <button className="btn-icon-lg" onClick={nextDay}>›</button>
       </div>
 
       {/* Total hours strip */}

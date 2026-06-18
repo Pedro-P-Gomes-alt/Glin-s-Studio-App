@@ -15,6 +15,12 @@ pub fn run() {
             sql: include_str!("../migrations/002_add_shipped.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "add delivered column",
+            sql: include_str!("../migrations/003_add_delivered.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

@@ -584,7 +584,7 @@ body {
 .board-col--todo    .board-col-header { background: #F5F5F5; color: #555; }
 .board-col--doing   .board-col-header { background: var(--pink-light); color: var(--pink-rich); }
 .board-col--pending .board-col-header { background: #FFF8E1; color: #B45309; }
-.board-col--done    .board-col-header { background: #F0FFF4; color: var(--positive); }
+.board-col--shipped .board-col-header { background: #F0FFF4; color: var(--positive); }
 
 .board-col-count {
   background: rgba(0,0,0,0.08);
@@ -626,6 +626,52 @@ body {
 
 .board-col--pending .board-card {
   border-left: 3px solid #F59E0B;
+}
+
+.board-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.board-card-btn {
+  flex: 1;
+  border: none;
+  border-radius: 5px;
+  padding: 5px 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s, filter 0.15s;
+}
+.board-card-btn:hover { filter: brightness(0.9); }
+
+.board-card-btn--deliver {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.board-card-btn--return {
+  background: #FEF3C7;
+  color: #92400E;
+}
+
+/* History section */
+.board-history {
+  margin-top: 36px;
+  border-top: 2px solid var(--border);
+  padding-top: 20px;
+}
+
+.board-history-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  margin-bottom: 12px;
 }
 
 .board-card-title {

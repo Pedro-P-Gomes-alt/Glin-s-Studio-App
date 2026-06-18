@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { query } from "../db";
+import { query, execute } from "../db";
 import { today } from "../utils/dates";
 import { formatEuro, formatEuroPerHour, formatMargin } from "../utils/money";
 
@@ -10,7 +10,8 @@ function daysBetween(isoA, isoB) {
 }
 
 function getStatus(p, todayStr) {
-  if (p.shipped) return "done";
+  if (p.delivered) return "history";
+  if (p.shipped) return "shipped";
   if (!p.total_hours || p.total_hours === 0) return "todo";
   if (p.last_log_date && daysBetween(p.last_log_date, todayStr) >= 3) return "pending";
   return "doing";
@@ -20,7 +21,7 @@ const COLS = [
   { id: "todo",    label: "To Do",   hint: "No time logged yet" },
   { id: "doing",   label: "Doing",   hint: "Worked on in the last 3 days" },
   { id: "pending", label: "Pending", hint: "No work logged for 3+ days" },
-  { id: "done",    label: "Done",    hint: "Shipped" },
+  { id: "shipped", label: "Shipped", hint: "Finalized — confirm delivery below" },
 ];
 
 function fmt(isoDate) {
@@ -30,7 +31,7 @@ function fmt(isoDate) {
   });
 }
 
-function ProjectCard({ project }) {
+function ProjectCard({ project, onDeliver, onReturn }) {
   const profit = project.sale_price_cents !== null
     ? project.sale_price_cents - project.material_cost_cents
     : null;
@@ -58,7 +59,7 @@ function ProjectCard({ project }) {
         {project.total_hours > 0 && (
           <span className="board-card-stat">{project.total_hours}h</span>
         )}
-        {project.last_log_date && project.shipped === 0 && (
+        {project.last_log_date && !project.shipped && (
           <span className="board-card-stat muted">last: {fmt(project.last_log_date)}</span>
         )}
         {profit !== null && (
@@ -72,6 +73,29 @@ function ProjectCard({ project }) {
           </span>
         )}
       </div>
+
+      {(onDeliver || onReturn) && (
+        <div className="board-card-actions">
+          {onReturn && (
+            <button
+              className="board-card-btn board-card-btn--return"
+              onClick={() => onReturn(project.id)}
+              title="Client returned it — move back to Doing for adjustments"
+            >
+              ↩ Returned
+            </button>
+          )}
+          {onDeliver && (
+            <button
+              className="board-card-btn board-card-btn--deliver"
+              onClick={() => onDeliver(project.id)}
+              title="Confirm delivery — move to History"
+            >
+              ✓ Delivered
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -85,7 +109,8 @@ export default function Board() {
   async function load() {
     const rows = await query(`
       SELECT p.id, p.title, p.planned_start, p.planned_end,
-             p.material_cost_cents, p.sale_price_cents, p.status_override, p.shipped,
+             p.material_cost_cents, p.sale_price_cents, p.status_override,
+             p.shipped, p.delivered,
              c.name AS client_name,
              cat.category, cat.subtype,
              COALESCE(SUM(tl.hours), 0) AS total_hours,
@@ -100,17 +125,29 @@ export default function Board() {
     setProjects(rows);
   }
 
+  async function handleDeliver(id) {
+    await execute(`UPDATE projects SET delivered = 1 WHERE id = ?`, [id]);
+    await load();
+  }
+
+  async function handleReturn(id) {
+    await execute(`UPDATE projects SET shipped = 0, delivered = 0 WHERE id = ?`, [id]);
+    await load();
+  }
+
   const grouped = Object.fromEntries(COLS.map(c => [c.id, []]));
+  const history = [];
   for (const p of projects) {
     const status = getStatus(p, todayStr);
-    if (grouped[status]) grouped[status].push(p);
+    if (status === "history") history.push(p);
+    else if (grouped[status]) grouped[status].push(p);
   }
 
   return (
     <div className="page">
       <div className="page-header">
         <h1>Board</h1>
-        <span className="page-hint">Updates live — ship a sale to mark Done</span>
+        <span className="page-hint">Log time to move → Doing. Finalize sale to → Shipped.</span>
       </div>
 
       <div className="board-cols">
@@ -124,12 +161,54 @@ export default function Board() {
               {grouped[col.id].length === 0 ? (
                 <p className="board-empty">{col.hint}</p>
               ) : (
-                grouped[col.id].map(p => <ProjectCard key={p.id} project={p} />)
+                grouped[col.id].map(p => (
+                  <ProjectCard
+                    key={p.id}
+                    project={p}
+                    onDeliver={col.id === "shipped" ? handleDeliver : null}
+                    onReturn={col.id === "shipped" ? handleReturn : null}
+                  />
+                ))
               )}
             </div>
           </div>
         ))}
       </div>
+
+      {/* History section */}
+      {history.length > 0 && (
+        <section className="board-history">
+          <h2 className="board-history-title">History</h2>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Title</th><th>Client</th><th>Type</th>
+                  <th>Sale price</th><th>Profit</th><th>Margin</th><th>€/hour</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map(p => {
+                  const profit = p.sale_price_cents !== null
+                    ? p.sale_price_cents - p.material_cost_cents
+                    : null;
+                  return (
+                    <tr key={p.id}>
+                      <td>{p.title}</td>
+                      <td>{p.client_name ?? "—"}</td>
+                      <td><span className="badge">{p.category}</span> {p.subtype}</td>
+                      <td>{formatEuro(p.sale_price_cents)}</td>
+                      <td className={profit >= 0 ? "positive" : "negative"}>{formatEuro(profit)}</td>
+                      <td>{formatMargin(profit, p.sale_price_cents)}</td>
+                      <td>{formatEuroPerHour(profit, p.total_hours)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
