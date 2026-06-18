@@ -7,7 +7,6 @@ import Calendar from "./pages/Calendar";
 import Board from "./pages/Board";
 import Clients from "./pages/Clients";
 import Quotes from "./pages/Quotes";
-import Social from "./pages/Social";
 import { query, execute } from "./db";
 
 // ── Font settings ──────────────────────────────────────────────────────
@@ -404,7 +403,6 @@ export default function App() {
     { id: "board",       label: "Board" },
     { id: "clients",     label: "Clients" },
     { id: "quotes",      label: "Quotes", badge: unseenQuotes > 0 ? unseenQuotes : null },
-    { id: "social",      label: "Social" },
   ];
 
   return (
@@ -428,14 +426,13 @@ export default function App() {
       </nav>
 
       <main className="content">
-        {page === "dashboard"   && <Dashboard />}
+        {page === "dashboard"   && <Dashboard socialConfig={socialConfig} socialErrors={socialErrors} onRefreshSocial={forceFetchSocial} />}
         {page === "sales"       && <Sales />}
         {page === "timekeeping" && <Timekeeping />}
         {page === "calendar"    && <Calendar />}
         {page === "board"       && <Board />}
         {page === "clients"     && <Clients />}
         {page === "quotes"      && <Quotes config={quotesConfig} onUnseenChange={setUnseenQuotes} onRefresh={fetchAndStoreQuotes} />}
-        {page === "social"      && <Social socialConfig={socialConfig} socialErrors={socialErrors} onRefresh={forceFetchSocial} />}
       </main>
 
       {toast && <Toast count={toast} onDismiss={() => setToast(null)} />}

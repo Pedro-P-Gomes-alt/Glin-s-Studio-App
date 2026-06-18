@@ -2,6 +2,56 @@ import { useState, useEffect } from "react";
 import { query } from "../db";
 import { formatEuro, formatEuroPerHour, formatMargin } from "../utils/money";
 
+const SOCIAL_PLATFORMS = [
+  { id: "youtube",   label: "YouTube",   color: "#E53935", metric: "subscribers" },
+  { id: "instagram", label: "Instagram", color: "#C13584", metric: "followers" },
+  { id: "tiktok",    label: "TikTok",    color: "#FE2C55", metric: "followers" },
+];
+
+function socialLatest(snaps) {
+  return snaps.length ? snaps[snaps.length - 1].value : null;
+}
+
+function socialGrowth(snaps, days) {
+  if (snaps.length < 2) return null;
+  const latest  = snaps[snaps.length - 1];
+  const cutoff  = new Date(latest.recorded_on + "T00:00:00");
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutStr  = cutoff.toISOString().split("T")[0];
+  const past    = [...snaps].reverse().find(s => s.recorded_on <= cutStr);
+  if (!past || past.recorded_on === latest.recorded_on) return null;
+  return latest.value - past.value;
+}
+
+function MiniChart({ snapshots, color }) {
+  if (!snapshots || snapshots.length < 2) return <div style={{ height: 36 }} />;
+  const values = snapshots.map(s => s.value);
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = max - min || 1;
+  const W = 200, H = 36, P = 2;
+  const pts = snapshots.map((s, i) => [
+    P + (i / (snapshots.length - 1)) * (W - P * 2),
+    P + (1 - (s.value - min) / range) * (H - P * 2),
+  ]);
+  const pl   = pts.map(([x, y]) => `${x},${y}`).join(" ");
+  const area = `${pts[0][0]},${H} ${pl} ${pts[pts.length - 1][0]},${H}`;
+  const gid  = `mg${color.replace(/[^a-z0-9]/gi, "")}`;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+      style={{ width: "100%", height: H, display: "block", marginTop: 8 }}>
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%"   stopColor={color} stopOpacity="0.2" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill={`url(#${gid})`} />
+      <polyline points={pl} fill="none" stroke={color}
+        strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const PERSONAL_CAT_META = [
   { key: "video",       label: "YouTube",     color: "#E53935" },
   { key: "short",       label: "Short-form",  color: "#8E24AA" },
@@ -82,7 +132,7 @@ function trendArrow(current, avg) {
   return { icon: "→", label: "on track", cls: "trend-flat" };
 }
 
-export default function Dashboard() {
+export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial }) {
   const [activeTab, setActiveTab]     = useState("overview");
 
   // Overview state
@@ -101,10 +151,15 @@ export default function Dashboard() {
   const [personalThisMonth, setPersonalThisMonth] = useState([]);
   const [personalTrend, setPersonalTrend]           = useState([]);
 
+  // Social state
+  const [ytSnaps, setYtSnaps] = useState([]);
+  const [igSnaps, setIgSnaps] = useState([]);
+  const [ttSnaps, setTtSnaps] = useState([]);
+
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    const [mw, mavg, mh, ov, cats, subs, cls, split, wh, pip, pmth, ptrend] =
+    const [mw, mavg, mh, ov, cats, subs, cls, split, wh, pip, pmth, ptrend, ytq, igq, ttq] =
       await Promise.all([
         // Cash received via payments this month (by received_on date)
         query(`
@@ -229,6 +284,19 @@ export default function Dashboard() {
           GROUP BY month, personal_category
           ORDER BY month
         `),
+        // Social snapshots — last 30 days
+        query(`SELECT recorded_on, value FROM social_snapshots
+               WHERE platform='youtube' AND metric='subscribers'
+                 AND recorded_on >= date('now', '-30 days')
+               ORDER BY recorded_on`),
+        query(`SELECT recorded_on, value FROM social_snapshots
+               WHERE platform='instagram' AND metric='followers'
+                 AND recorded_on >= date('now', '-30 days')
+               ORDER BY recorded_on`),
+        query(`SELECT recorded_on, value FROM social_snapshots
+               WHERE platform='tiktok' AND metric='followers'
+                 AND recorded_on >= date('now', '-30 days')
+               ORDER BY recorded_on`),
       ]);
 
     setMonthCash(mw[0] ?? null);
@@ -243,6 +311,9 @@ export default function Dashboard() {
     setPipeline(pip[0] ?? null);
     setPersonalThisMonth(pmth);
     setPersonalTrend(ptrend);
+    setYtSnaps(ytq);
+    setIgSnaps(igq);
+    setTtSnaps(ttq);
   }
 
   const noShipped = !overview || overview.total === 0;
@@ -619,6 +690,63 @@ export default function Dashboard() {
             </div>
           </DashSection>
         )}
+
+        {/* Social Media */}
+        <DashSection
+          title="Social Media"
+          hint={
+            <button className="btn-ghost sm" style={{ fontSize: "0.75rem", padding: "2px 10px" }}
+              onClick={onRefreshSocial}>
+              Refresh
+            </button>
+          }
+        >
+          <div className="social-dash-row">
+            {SOCIAL_PLATFORMS.map(p => {
+              const snaps = p.id === "youtube" ? ytSnaps
+                          : p.id === "instagram" ? igSnaps : ttSnaps;
+              const latest    = socialLatest(snaps);
+              const dailyG    = socialGrowth(snaps, 1);
+              const weekG     = socialGrowth(snaps, 7);
+              const configured = p.id === "youtube"   ? !!socialConfig?.yt_api_key
+                               : p.id === "instagram" ? !!(socialConfig?.ig_access_token && socialConfig?.ig_user_id)
+                               : true;
+              return (
+                <div key={p.id} className="social-dash-card">
+                  <div className="social-dash-name" style={{ color: p.color }}>{p.label}</div>
+                  {latest !== null ? (
+                    <>
+                      <div className="social-dash-count">{latest.toLocaleString("en-GB")}</div>
+                      <div className="social-dash-metric">{p.metric}</div>
+                      <div className="social-dash-growths">
+                        {dailyG !== null
+                          ? <span className={dailyG >= 0 ? "positive" : "negative"}>{dailyG >= 0 ? "+" : ""}{dailyG} today</span>
+                          : <span className="muted">— today</span>
+                        }
+                        {weekG !== null && (
+                          <span className="muted"> · {weekG >= 0 ? "+" : ""}{weekG} this week</span>
+                        )}
+                      </div>
+                      <MiniChart snapshots={snaps} color={p.color} />
+                    </>
+                  ) : (
+                    <div className="social-dash-empty">
+                      {configured ? "No data yet" : "Not set up — see Settings"}
+                    </div>
+                  )}
+                  {socialErrors?.[p.id] && (
+                    <div className="social-dash-error">⚠ {socialErrors[p.id]}</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {!socialConfig?.yt_api_key && !socialConfig?.ig_access_token && (
+            <p style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: 10, fontStyle: "italic" }}>
+              Connect YouTube and Instagram in Settings to see live data. TikTok can be updated manually.
+            </p>
+          )}
+        </DashSection>
       </>}
     </div>
   );

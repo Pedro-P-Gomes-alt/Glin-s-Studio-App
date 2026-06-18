@@ -2163,6 +2163,62 @@ body {
   border-radius: 4px;
 }
 
+/* ── Social embedded in Dashboard Personal tab ─ */
+.social-dash-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.social-dash-card {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.social-dash-name {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.social-dash-count {
+  font-size: 1.7rem;
+  font-weight: 800;
+  color: var(--black);
+  line-height: 1.1;
+  margin-top: 4px;
+}
+
+.social-dash-metric {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: capitalize;
+}
+
+.social-dash-growths {
+  font-size: 0.78rem;
+  margin-top: 2px;
+}
+
+.social-dash-empty {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-style: italic;
+  margin-top: 6px;
+}
+
+.social-dash-error {
+  font-size: 0.72rem;
+  color: var(--negative);
+  margin-top: 4px;
+}
+
 /* ── Social page ────────────────────────────── */
 .social-platform-row {
   display: grid;
