@@ -39,6 +39,12 @@ pub fn run() {
             sql: include_str!("../migrations/006_personal_payments.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 7,
+            description: "social media tables",
+            sql: include_str!("../migrations/007_social.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

@@ -7,59 +7,54 @@ import Calendar from "./pages/Calendar";
 import Board from "./pages/Board";
 import Clients from "./pages/Clients";
 import Quotes from "./pages/Quotes";
+import Social from "./pages/Social";
 import { query, execute } from "./db";
 
 // ── Font settings ──────────────────────────────────────────────────────
-const FONT_SIZES = {
-  compact:     "13px",
-  default:     "15px",
-  comfortable: "17px",
-};
+const FONT_SIZES    = { compact: "13px", default: "15px", comfortable: "17px" };
 const FONT_FAMILIES = {
-  system:  "system-ui, -apple-system, sans-serif",
-  segoe:   "'Segoe UI', system-ui, sans-serif",
-  serif:   "Georgia, 'Times New Roman', serif",
-  mono:    "'Cascadia Code', Consolas, 'Courier New', monospace",
+  system: "system-ui, -apple-system, sans-serif",
+  segoe:  "'Segoe UI', system-ui, sans-serif",
+  serif:  "Georgia, 'Times New Roman', serif",
+  mono:   "'Cascadia Code', Consolas, 'Courier New', monospace",
 };
 const FONT_FAMILY_LABELS = {
-  system:  "System default",
-  segoe:   "Segoe UI (Windows)",
-  serif:   "Serif",
-  mono:    "Monospace",
+  system: "System default", segoe: "Segoe UI (Windows)", serif: "Serif", mono: "Monospace",
 };
 
-const DEFAULT_SETTINGS = { fontSize: "default", fontFamily: "system" };
+const DEFAULT_SETTINGS      = { fontSize: "default", fontFamily: "system" };
 const DEFAULT_QUOTES_CONFIG = { scriptUrl: "", token: "" };
+const DEFAULT_SOCIAL_CONFIG = {
+  yt_api_key:     "",
+  yt_handle:      "@glindesign",
+  yt_channel_id:  "",   // auto-discovered and cached
+  ig_access_token:"",
+  ig_user_id:     "",
+};
 
-function loadSettings() {
-  try {
-    const raw = localStorage.getItem("glins_settings");
-    return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS;
-  } catch { return DEFAULT_SETTINGS; }
-}
-function loadQuotesConfig() {
-  try {
-    const raw = localStorage.getItem("glins_quotes_config");
-    return raw ? { ...DEFAULT_QUOTES_CONFIG, ...JSON.parse(raw) } : DEFAULT_QUOTES_CONFIG;
-  } catch { return DEFAULT_QUOTES_CONFIG; }
+function ls(key, def) {
+  try { const r = localStorage.getItem(key); return r ? { ...def, ...JSON.parse(r) } : def; }
+  catch { return def; }
 }
 
 // ── Settings panel ─────────────────────────────────────────────────────
-function SettingsPanel({ settings, quotesConfig, onChangeSettings, onChangeQuotes, onClose }) {
-  function setFont(key, val) {
-    const next = { ...settings, [key]: val };
-    onChangeSettings(next);
-    localStorage.setItem("glins_settings", JSON.stringify(next));
-  }
-  function setQuote(key, val) {
-    const next = { ...quotesConfig, [key]: val };
-    onChangeQuotes(next);
-    localStorage.setItem("glins_quotes_config", JSON.stringify(next));
-  }
+function SettingsPanel({ settings, quotesConfig, socialConfig,
+                         onChangeSettings, onChangeQuotes, onChangeSocial, onClose }) {
+
+  function setFont(k, v)  { const n = { ...settings, [k]: v };        onChangeSettings(n); localStorage.setItem("glins_settings", JSON.stringify(n)); }
+  function setQuote(k, v) { const n = { ...quotesConfig, [k]: v };    onChangeQuotes(n);   localStorage.setItem("glins_quotes_config", JSON.stringify(n)); }
+  function setSocial(k, v){ const n = { ...socialConfig, [k]: v };    onChangeSocial(n);   localStorage.setItem("glins_social_config", JSON.stringify(n)); }
+
+  const tokenDaysLeft = (() => {
+    if (!socialConfig.ig_token_refreshed_at) return null;
+    const refreshed = new Date(socialConfig.ig_token_refreshed_at);
+    const expiry    = new Date(refreshed.getTime() + 60 * 24 * 60 * 60 * 1000);
+    return Math.ceil((expiry - Date.now()) / 86400000);
+  })();
 
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="panel" onClick={e => e.stopPropagation()}>
+      <div className="panel" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
         <div className="panel-header">
           <h2>Settings</h2>
           <button className="btn-icon" onClick={onClose}>✕</button>
@@ -70,11 +65,10 @@ function SettingsPanel({ settings, quotesConfig, onChangeSettings, onChangeQuote
           <div className="settings-section">
             <div className="settings-section-title">Font size</div>
             <div className="settings-options">
-              {Object.keys(FONT_SIZES).map(key => (
-                <button key={key}
-                  className={`settings-option${settings.fontSize === key ? " active" : ""}`}
-                  onClick={() => setFont("fontSize", key)}>
-                  {key.charAt(0).toUpperCase() + key.slice(1)}
+              {Object.keys(FONT_SIZES).map(k => (
+                <button key={k} className={`settings-option${settings.fontSize === k ? " active" : ""}`}
+                  onClick={() => setFont("fontSize", k)}>
+                  {k.charAt(0).toUpperCase() + k.slice(1)}
                 </button>
               ))}
             </div>
@@ -85,42 +79,80 @@ function SettingsPanel({ settings, quotesConfig, onChangeSettings, onChangeQuote
           <div className="settings-section">
             <div className="settings-section-title">Font style</div>
             <div className="settings-options col">
-              {Object.keys(FONT_FAMILIES).map(key => (
-                <button key={key}
-                  className={`settings-option font-preview${settings.fontFamily === key ? " active" : ""}`}
-                  style={{ fontFamily: FONT_FAMILIES[key] }}
-                  onClick={() => setFont("fontFamily", key)}>
-                  {FONT_FAMILY_LABELS[key]}
+              {Object.keys(FONT_FAMILIES).map(k => (
+                <button key={k}
+                  className={`settings-option font-preview${settings.fontFamily === k ? " active" : ""}`}
+                  style={{ fontFamily: FONT_FAMILIES[k] }}
+                  onClick={() => setFont("fontFamily", k)}>
+                  {FONT_FAMILY_LABELS[k]}
                   <span className="settings-option-sample">Aa Bb 1234</span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Quotes connection */}
+          {/* Quotes */}
           <div className="settings-section">
-            <div className="settings-section-title">Quotes — Google Sheets connection</div>
-            <p className="settings-hint" style={{ marginBottom: 8 }}>
-              Go to <strong>Quotes</strong> tab for setup instructions.
-            </p>
+            <div className="settings-section-title">Quotes — Google Sheets</div>
+            <p className="settings-hint" style={{ marginBottom: 8 }}>See Quotes tab for setup instructions.</p>
             <div className="field">
               <label>Apps Script URL</label>
-              <input
-                type="url"
-                value={quotesConfig.scriptUrl}
+              <input type="url" value={quotesConfig.scriptUrl}
                 onChange={e => setQuote("scriptUrl", e.target.value)}
-                placeholder="https://script.google.com/macros/s/…/exec"
-              />
+                placeholder="https://script.google.com/macros/s/…/exec" />
             </div>
             <div className="field" style={{ marginTop: 8 }}>
               <label>Secret token</label>
-              <input
-                type="password"
-                value={quotesConfig.token}
+              <input type="password" value={quotesConfig.token}
                 onChange={e => setQuote("token", e.target.value)}
-                placeholder="The passphrase you set in the script"
-              />
+                placeholder="Passphrase from your script" />
             </div>
+          </div>
+
+          {/* YouTube */}
+          <div className="settings-section">
+            <div className="settings-section-title">YouTube API</div>
+            <p className="settings-hint" style={{ marginBottom: 8 }}>
+              Free key from{" "}
+              <strong>console.cloud.google.com</strong> → Enable YouTube Data API v3 → Create API key.
+            </p>
+            <div className="field">
+              <label>API Key</label>
+              <input type="password" value={socialConfig.yt_api_key}
+                onChange={e => setSocial("yt_api_key", e.target.value)}
+                placeholder="AIza…" />
+            </div>
+            <div className="field" style={{ marginTop: 8 }}>
+              <label>Channel handle</label>
+              <input value={socialConfig.yt_handle}
+                onChange={e => setSocial("yt_handle", e.target.value)}
+                placeholder="@glindesign" />
+            </div>
+          </div>
+
+          {/* Instagram */}
+          <div className="settings-section">
+            <div className="settings-section-title">Instagram Graph API</div>
+            <p className="settings-hint" style={{ marginBottom: 8 }}>
+              See <strong>Social → Instagram → Setup</strong> for full instructions.
+            </p>
+            <div className="field">
+              <label>Long-lived access token</label>
+              <input type="password" value={socialConfig.ig_access_token}
+                onChange={e => { setSocial("ig_access_token", e.target.value); }}
+                placeholder="IGQ…" />
+            </div>
+            <div className="field" style={{ marginTop: 8 }}>
+              <label>Instagram User ID</label>
+              <input value={socialConfig.ig_user_id}
+                onChange={e => setSocial("ig_user_id", e.target.value)}
+                placeholder="Numeric ID from Graph API Explorer" />
+            </div>
+            {tokenDaysLeft !== null && tokenDaysLeft < 14 && (
+              <p className="settings-hint" style={{ color: tokenDaysLeft < 7 ? "var(--negative)" : "#B45309", marginTop: 6 }}>
+                ⚠ Instagram token expires in ~{tokenDaysLeft} day{tokenDaysLeft !== 1 ? "s" : ""}. Open the Social tab to auto-refresh it.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -130,15 +162,10 @@ function SettingsPanel({ settings, quotesConfig, onChangeSettings, onChangeQuote
 
 // ── Toast notification ─────────────────────────────────────────────────
 function Toast({ count, onDismiss }) {
-  useEffect(() => {
-    const t = setTimeout(onDismiss, 6000);
-    return () => clearTimeout(t);
-  }, []);
+  useEffect(() => { const t = setTimeout(onDismiss, 6000); return () => clearTimeout(t); }, []);
   return (
     <div className="toast" onClick={onDismiss}>
-      {count === 1
-        ? "New quote request received!"
-        : `${count} new quote requests received!`}
+      {count === 1 ? "New quote request received!" : `${count} new quote requests received!`}
       <button className="toast-dismiss">✕</button>
     </div>
   );
@@ -147,12 +174,14 @@ function Toast({ count, onDismiss }) {
 // ── App ────────────────────────────────────────────────────────────────
 export default function App() {
   const [page, setPage]               = useState("dashboard");
-  const [settings, setSettings]       = useState(loadSettings);
-  const [quotesConfig, setQuotesConfig] = useState(loadQuotesConfig);
+  const [settings, setSettings]       = useState(() => ls("glins_settings", DEFAULT_SETTINGS));
+  const [quotesConfig, setQuotesConfig] = useState(() => ls("glins_quotes_config", DEFAULT_QUOTES_CONFIG));
+  const [socialConfig, setSocialConfig] = useState(() => ls("glins_social_config", DEFAULT_SOCIAL_CONFIG));
   const [showSettings, setShowSettings] = useState(false);
   const [unseenQuotes, setUnseenQuotes] = useState(0);
+  const [socialErrors, setSocialErrors] = useState({});
   const [toast, setToast]             = useState(null);
-  const pollRef = useRef(null);
+  const quotePollRef = useRef(null);
 
   // Apply font settings
   useEffect(() => {
@@ -160,21 +189,26 @@ export default function App() {
     document.documentElement.style.fontFamily = FONT_FAMILIES[settings.fontFamily] ?? FONT_FAMILIES.system;
   }, [settings]);
 
-  // Load unseen count on start
-  useEffect(() => {
-    refreshUnseenCount();
-  }, []);
+  // Quotes: load unseen on start
+  useEffect(() => { refreshUnseenCount(); }, []);
 
-  // Poll when config changes or on mount
+  // Quotes: poll hourly
   useEffect(() => {
-    if (pollRef.current) clearInterval(pollRef.current);
+    if (quotePollRef.current) clearInterval(quotePollRef.current);
     if (!quotesConfig.scriptUrl || !quotesConfig.token) return;
-
-    fetchAndStore(); // immediate
-    pollRef.current = setInterval(fetchAndStore, 60 * 60 * 1000); // hourly
-    return () => clearInterval(pollRef.current);
+    fetchAndStoreQuotes();
+    quotePollRef.current = setInterval(fetchAndStoreQuotes, 60 * 60 * 1000);
+    return () => clearInterval(quotePollRef.current);
   }, [quotesConfig.scriptUrl, quotesConfig.token]);
 
+  // Social: fetch once per day whenever config is set
+  useEffect(() => {
+    const hasYT = !!socialConfig.yt_api_key;
+    const hasIG = !!(socialConfig.ig_access_token && socialConfig.ig_user_id);
+    if (hasYT || hasIG) fetchSocialIfNeeded();
+  }, [socialConfig.yt_api_key, socialConfig.ig_access_token, socialConfig.ig_user_id]);
+
+  // ── Quotes helpers ─────────────────────────────────────────────────
   async function refreshUnseenCount() {
     try {
       const rows = await query(`SELECT COUNT(*) AS cnt FROM quotes WHERE seen = 0`);
@@ -182,7 +216,7 @@ export default function App() {
     } catch {}
   }
 
-  async function fetchAndStore() {
+  async function fetchAndStoreQuotes() {
     if (!quotesConfig.scriptUrl || !quotesConfig.token) return;
     try {
       const url = `${quotesConfig.scriptUrl}?token=${encodeURIComponent(quotesConfig.token)}`;
@@ -190,29 +224,176 @@ export default function App() {
       if (!res.ok) return;
       const data = await res.json();
       if (!Array.isArray(data.rows)) return;
-
       const before = await query(`SELECT COUNT(*) AS cnt FROM quotes`);
-      const beforeCount = before[0]?.cnt ?? 0;
-
       for (const row of data.rows) {
         const sourceId    = String(row.Timestamp ?? row._row ?? Math.random());
         const submittedAt = row.Timestamp ? new Date(row.Timestamp).toISOString() : null;
-        try {
-          await execute(
-            `INSERT OR IGNORE INTO quotes (source_id, submitted_at, data) VALUES (?, ?, ?)`,
-            [sourceId, submittedAt, JSON.stringify(row)]
-          );
-        } catch {}
+        try { await execute(`INSERT OR IGNORE INTO quotes (source_id, submitted_at, data) VALUES (?, ?, ?)`,
+          [sourceId, submittedAt, JSON.stringify(row)]); } catch {}
       }
-
       const after = await query(`SELECT COUNT(*) AS cnt FROM quotes`);
-      const newCount = (after[0]?.cnt ?? 0) - beforeCount;
+      const newCount = (after[0]?.cnt ?? 0) - (before[0]?.cnt ?? 0);
       if (newCount > 0) setToast(newCount);
-
       await refreshUnseenCount();
-    } catch (err) {
-      console.warn("Quotes fetch failed:", err);
+    } catch (err) { console.warn("Quotes fetch failed:", err); }
+  }
+
+  // ── Social helpers ─────────────────────────────────────────────────
+  async function fetchYouTube() {
+    const key    = socialConfig.yt_api_key;
+    const handle = socialConfig.yt_handle || "@glindesign";
+    if (!key) return;
+
+    let channelId = socialConfig.yt_channel_id;
+
+    // Discover channel ID from handle (once, then cached)
+    if (!channelId) {
+      const r = await fetch(
+        `https://www.googleapis.com/youtube/v3/channels?part=id&forHandle=${encodeURIComponent(handle)}&key=${key}`
+      );
+      const d = await r.json();
+      if (d.error) throw new Error(d.error.message);
+      if (!d.items?.length) throw new Error(`Channel not found for handle: ${handle}`);
+      channelId = d.items[0].id;
+      setSocialConfig(prev => {
+        const next = { ...prev, yt_channel_id: channelId };
+        localStorage.setItem("glins_social_config", JSON.stringify(next));
+        return next;
+      });
     }
+
+    // Channel statistics
+    const r2 = await fetch(
+      `https://www.googleapis.com/youtube/v3/channels?part=statistics&id=${channelId}&key=${key}`
+    );
+    const d2 = await r2.json();
+    if (d2.error) throw new Error(d2.error.message);
+    const stats = d2.items?.[0]?.statistics;
+    if (!stats) throw new Error("Could not read channel statistics");
+
+    await execute(`INSERT OR IGNORE INTO social_snapshots (platform, metric, value) VALUES (?, ?, ?)`,
+      ["youtube", "subscribers", Number(stats.subscriberCount ?? 0)]);
+    await execute(`INSERT OR IGNORE INTO social_snapshots (platform, metric, value) VALUES (?, ?, ?)`,
+      ["youtube", "views", Number(stats.viewCount ?? 0)]);
+    await execute(`INSERT OR IGNORE INTO social_snapshots (platform, metric, value) VALUES (?, ?, ?)`,
+      ["youtube", "videos", Number(stats.videoCount ?? 0)]);
+
+    // Recent videos
+    const r3 = await fetch(
+      `https://www.googleapis.com/youtube/v3/search?channelId=${channelId}&type=video&order=date&maxResults=10&part=snippet&key=${key}`
+    );
+    const d3 = await r3.json();
+    if (!d3.items?.length) return;
+
+    const ids = d3.items.map(v => v.id?.videoId).filter(Boolean).join(",");
+    if (!ids) return;
+
+    const r4 = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id=${ids}&key=${key}`
+    );
+    const d4 = await r4.json();
+    if (!d4.items) return;
+
+    for (const vid of d4.items) {
+      await execute(
+        `INSERT OR REPLACE INTO yt_videos
+           (video_id, title, published_at, thumbnail_url, view_count, like_count, comment_count, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
+        [
+          vid.id,
+          vid.snippet.title,
+          vid.snippet.publishedAt,
+          vid.snippet.thumbnails?.medium?.url ?? null,
+          Number(vid.statistics?.viewCount   ?? 0),
+          Number(vid.statistics?.likeCount   ?? 0),
+          Number(vid.statistics?.commentCount ?? 0),
+        ]
+      );
+    }
+  }
+
+  async function fetchInstagram() {
+    const token  = socialConfig.ig_access_token;
+    const userId = socialConfig.ig_user_id;
+    if (!token || !userId) return;
+
+    // Auto-refresh token (resets 60-day expiry)
+    try {
+      await fetch(`https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${token}`);
+      setSocialConfig(prev => {
+        const next = { ...prev, ig_token_refreshed_at: new Date().toISOString() };
+        localStorage.setItem("glins_social_config", JSON.stringify(next));
+        return next;
+      });
+    } catch {}
+
+    const r = await fetch(
+      `https://graph.instagram.com/v18.0/${userId}?fields=followers_count,media_count&access_token=${token}`
+    );
+    const d = await r.json();
+    if (d.error) throw new Error(d.error.message);
+
+    await execute(`INSERT OR IGNORE INTO social_snapshots (platform, metric, value) VALUES (?, ?, ?)`,
+      ["instagram", "followers", Number(d.followers_count ?? 0)]);
+    await execute(`INSERT OR IGNORE INTO social_snapshots (platform, metric, value) VALUES (?, ?, ?)`,
+      ["instagram", "posts", Number(d.media_count ?? 0)]);
+
+    // Recent media
+    const r2 = await fetch(
+      `https://graph.instagram.com/v18.0/${userId}/media?fields=id,media_type,caption,timestamp,like_count,comments_count&limit=12&access_token=${token}`
+    );
+    const d2 = await r2.json();
+    if (!d2.data) return;
+
+    for (const m of d2.data) {
+      await execute(
+        `INSERT OR REPLACE INTO ig_media
+           (media_id, media_type, caption, timestamp, like_count, comments_count, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+        [m.id, m.media_type ?? null, m.caption ?? null, m.timestamp ?? null,
+         Number(m.like_count ?? 0), Number(m.comments_count ?? 0)]
+      );
+    }
+  }
+
+  async function fetchSocialIfNeeded() {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const errs = { ...socialErrors };
+
+    if (socialConfig.yt_api_key) {
+      try {
+        const rows = await query(
+          `SELECT id FROM social_snapshots WHERE platform='youtube' AND metric='subscribers' AND recorded_on=?`,
+          [todayStr]
+        );
+        if (rows.length === 0) await fetchYouTube();
+        errs.youtube = null;
+      } catch (e) { errs.youtube = e.message; }
+    }
+
+    if (socialConfig.ig_access_token && socialConfig.ig_user_id) {
+      try {
+        const rows = await query(
+          `SELECT id FROM social_snapshots WHERE platform='instagram' AND metric='followers' AND recorded_on=?`,
+          [todayStr]
+        );
+        if (rows.length === 0) await fetchInstagram();
+        errs.instagram = null;
+      } catch (e) { errs.instagram = e.message; }
+    }
+
+    setSocialErrors(errs);
+  }
+
+  async function forceFetchSocial() {
+    const errs = {};
+    if (socialConfig.yt_api_key) {
+      try { await fetchYouTube(); } catch (e) { errs.youtube = e.message; }
+    }
+    if (socialConfig.ig_access_token && socialConfig.ig_user_id) {
+      try { await fetchInstagram(); } catch (e) { errs.instagram = e.message; }
+    }
+    setSocialErrors(errs);
   }
 
   const NAV = [
@@ -223,6 +404,7 @@ export default function App() {
     { id: "board",       label: "Board" },
     { id: "clients",     label: "Clients" },
     { id: "quotes",      label: "Quotes", badge: unseenQuotes > 0 ? unseenQuotes : null },
+    { id: "social",      label: "Social" },
   ];
 
   return (
@@ -233,22 +415,16 @@ export default function App() {
           <span className="sidebar-brand-sub">studio</span>
         </div>
         <ul>
-          {NAV.map((n) => (
+          {NAV.map(n => (
             <li key={n.id}>
-              <button
-                className={page === n.id ? "active" : ""}
-                onClick={() => setPage(n.id)}
-              >
+              <button className={page === n.id ? "active" : ""} onClick={() => setPage(n.id)}>
                 {n.label}
                 {n.badge && <span className="nav-badge">{n.badge}</span>}
               </button>
             </li>
           ))}
         </ul>
-
-        <button className="sidebar-settings-btn" onClick={() => setShowSettings(true)}>
-          ⚙ Settings
-        </button>
+        <button className="sidebar-settings-btn" onClick={() => setShowSettings(true)}>⚙ Settings</button>
       </nav>
 
       <main className="content">
@@ -258,25 +434,20 @@ export default function App() {
         {page === "calendar"    && <Calendar />}
         {page === "board"       && <Board />}
         {page === "clients"     && <Clients />}
-        {page === "quotes"      && (
-          <Quotes
-            config={quotesConfig}
-            onUnseenChange={setUnseenQuotes}
-            onRefresh={fetchAndStore}
-          />
-        )}
+        {page === "quotes"      && <Quotes config={quotesConfig} onUnseenChange={setUnseenQuotes} onRefresh={fetchAndStoreQuotes} />}
+        {page === "social"      && <Social socialConfig={socialConfig} socialErrors={socialErrors} onRefresh={forceFetchSocial} />}
       </main>
 
-      {toast && (
-        <Toast count={toast} onDismiss={() => setToast(null)} />
-      )}
+      {toast && <Toast count={toast} onDismiss={() => setToast(null)} />}
 
       {showSettings && (
         <SettingsPanel
           settings={settings}
           quotesConfig={quotesConfig}
+          socialConfig={socialConfig}
           onChangeSettings={setSettings}
           onChangeQuotes={setQuotesConfig}
+          onChangeSocial={setSocialConfig}
           onClose={() => setShowSettings(false)}
         />
       )}
