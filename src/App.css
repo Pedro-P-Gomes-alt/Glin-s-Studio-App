@@ -830,17 +830,39 @@ body {
   border-radius: 4px;
   display: flex;
   align-items: center;
-  padding: 0 6px;
+  justify-content: space-between;
+  padding: 0 4px 0 6px;
   overflow: hidden;
   font-size: 0.72rem;
   font-weight: 700;
   white-space: nowrap;
+  gap: 4px;
 }
 
-.cal-bar--event { background: var(--pink-rich); color: #fff; }
+.cal-bar--event   { background: var(--pink-rich); color: #fff; }
+.cal-bar--vacation {
+  background: #CDCDCD;
+  color: #555;
+  font-style: italic;
+}
 .cal-bar.no-left-r  { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 .cal-bar.no-right-r { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.cal-bar-title { overflow: hidden; text-overflow: ellipsis; }
+.cal-bar-title { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+
+.cal-bar-delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: inherit;
+  opacity: 0;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+}
+.cal-bar:hover .cal-bar-delete { opacity: 0.75; }
+.cal-bar-delete:hover { opacity: 1 !important; }
 
 /* Legend */
 .cal-legend {

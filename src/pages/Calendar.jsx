@@ -70,62 +70,87 @@ function DayCell({ date, isToday, isVacation, hoursLogged, deadlines, onClick })
         {isVacation && <span className="cal-off-badge">off</span>}
       </div>
 
-      {!isVacation && (
-        <div className="cal-day-body">
-          {hoursLogged > 0 && (
-            <div className="cal-hours-dot">
-              {hoursLogged % 1 === 0 ? hoursLogged : hoursLogged.toFixed(1)}h
-            </div>
-          )}
-          {deadlines.map(d => (
-            <div key={d.id} className="cal-deadline-pill" title={d.title}>
-              ⚑ {d.title}
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="cal-day-body">
+        {/* Deadlines always visible, even on vacation */}
+        {deadlines.map(d => (
+          <div key={d.id} className="cal-deadline-pill" title={d.title}>
+            ⚑ {d.title}
+          </div>
+        ))}
+        {/* Time logs only on work days */}
+        {!isVacation && hoursLogged > 0 && (
+          <div className="cal-hours-dot">
+            {hoursLogged % 1 === 0 ? hoursLogged : hoursLogged.toFixed(1)}h
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function WeekRow({ weekDays, eventLanes, vacationRanges, logsByDate, deadlinesByDate, todayStr, onDayClick }) {
+function EventBar({ item, cStart, cEnd, startsHere, endsHere, kind, onDelete }) {
+  return (
+    <div
+      className={[
+        "cal-bar", `cal-bar--${kind}`,
+        !startsHere ? "no-left-r" : "",
+        !endsHere ? "no-right-r" : "",
+      ].join(" ")}
+      style={{ gridColumn: `${cStart + 1} / ${cEnd + 2}` }}
+      title={item.title}
+    >
+      {startsHere && <span className="cal-bar-title">{item.title}</span>}
+      <button
+        className="cal-bar-delete"
+        onClick={e => { e.stopPropagation(); onDelete(item.id); }}
+        title="Delete"
+      >✕</button>
+    </div>
+  );
+}
+
+function WeekRow({ weekDays, vacationEvents, nonVacationEvents, logsByDate, deadlinesByDate, todayStr, onDayClick, onDeleteEvent }) {
+  const vacLanes = buildLanes(weekDays, vacationEvents);
+  const evtLanes = buildLanes(weekDays, nonVacationEvents);
+
   return (
     <div className="cal-week">
+      {/* Vacation bars above day cells — label + delete */}
+      {vacLanes.map((lane, li) => (
+        <div key={`vac-${li}`} className="cal-lane">
+          {lane.map(({ item, cStart, cEnd, startsHere, endsHere }) => (
+            <EventBar key={item.id} item={item} cStart={cStart} cEnd={cEnd}
+              startsHere={startsHere} endsHere={endsHere}
+              kind="vacation" onDelete={onDeleteEvent} />
+          ))}
+        </div>
+      ))}
+
+      {/* Day cells */}
       <div className="cal-days-row">
         {weekDays.map((date, i) => {
-          const isVacation = date ? vacationRanges.some(v => v.start <= date && v.end >= date) : false;
-          const hoursLogged = date ? (logsByDate[date] ?? 0) : 0;
-          const deadlines = date ? (deadlinesByDate[date] ?? []) : [];
+          const isVacation = date ? vacationEvents.some(v => v.start <= date && v.end >= date) : false;
           return (
             <DayCell
               key={i}
               date={date}
               isToday={date === todayStr}
               isVacation={isVacation}
-              hoursLogged={hoursLogged}
-              deadlines={deadlines}
+              hoursLogged={date ? (logsByDate[date] ?? 0) : 0}
+              deadlines={date ? (deadlinesByDate[date] ?? []) : []}
               onClick={onDayClick}
             />
           );
         })}
       </div>
 
-      {/* Spanning bars for non-vacation events only */}
-      {eventLanes.map((lane, li) => (
-        <div key={li} className="cal-lane">
+      {/* Non-vacation event bars below day cells */}
+      {evtLanes.map((lane, li) => (
+        <div key={`evt-${li}`} className="cal-lane">
           {lane.map(({ item, cStart, cEnd, startsHere, endsHere }) => (
-            <div
-              key={item.id}
-              className={[
-                "cal-bar cal-bar--event",
-                !startsHere ? "no-left-r" : "",
-                !endsHere ? "no-right-r" : "",
-              ].join(" ")}
-              style={{ gridColumn: `${cStart + 1} / ${cEnd + 2}` }}
-              title={item.title}
-            >
-              {startsHere && <span className="cal-bar-title">{item.title}</span>}
-            </div>
+            <EventBar key={item.id} item={item} cStart={cStart} cEnd={cEnd}
+              startsHere={startsHere} endsHere={endsHere}
+              kind="event" onDelete={onDeleteEvent} />
           ))}
         </div>
       ))}
@@ -287,7 +312,7 @@ export default function Calendar() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
-  const [vacationRanges, setVacationRanges] = useState([]);
+  const [vacationEvents, setVacationEvents] = useState([]);
   const [nonVacationEvents, setNonVacationEvents] = useState([]);
   const [logsByDate, setLogsByDate] = useState({});
   const [deadlinesByDate, setDeadlinesByDate] = useState({});
@@ -308,8 +333,8 @@ export default function Calendar() {
       query(`SELECT id, name FROM clients ORDER BY name`),
     ]);
 
-    setVacationRanges(events.filter(e => e.event_type === "vacation"));
-    setNonVacationEvents(events.filter(e => e.event_type !== "vacation").map(e => ({ ...e, kind: "event" })));
+    setVacationEvents(events.filter(e => e.event_type === "vacation"));
+    setNonVacationEvents(events.filter(e => e.event_type !== "vacation"));
 
     const lbd = {};
     for (const l of logs) lbd[l.date] = l.total;
@@ -323,6 +348,11 @@ export default function Calendar() {
     setDeadlinesByDate(dbd);
     setCategories(cats);
     setClients(cls);
+  }
+
+  async function deleteEvent(id) {
+    await execute(`DELETE FROM events WHERE id = ?`, [id]);
+    await loadAll();
   }
 
   function prevMonth() { month === 0 ? (setYear(y => y - 1), setMonth(11)) : setMonth(m => m - 1); }
@@ -350,21 +380,19 @@ export default function Calendar() {
         <div className="cal-header-row">
           {WEEKDAYS.map(d => <div key={d} className="cal-header-cell">{d}</div>)}
         </div>
-        {weeks.map((weekDays, wi) => {
-          const eventLanes = buildLanes(weekDays, nonVacationEvents);
-          return (
-            <WeekRow
-              key={wi}
-              weekDays={weekDays}
-              eventLanes={eventLanes}
-              vacationRanges={vacationRanges}
-              logsByDate={logsByDate}
-              deadlinesByDate={deadlinesByDate}
-              todayStr={todayStr}
-              onDayClick={d => { setSelectedDate(d); setPanel("project"); }}
-            />
-          );
-        })}
+        {weeks.map((weekDays, wi) => (
+          <WeekRow
+            key={wi}
+            weekDays={weekDays}
+            vacationEvents={vacationEvents}
+            nonVacationEvents={nonVacationEvents}
+            logsByDate={logsByDate}
+            deadlinesByDate={deadlinesByDate}
+            todayStr={todayStr}
+            onDayClick={d => { setSelectedDate(d); setPanel("project"); }}
+            onDeleteEvent={deleteEvent}
+          />
+        ))}
       </div>
 
       <div className="cal-legend">
