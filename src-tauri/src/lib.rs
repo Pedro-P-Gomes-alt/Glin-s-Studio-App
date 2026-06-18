@@ -21,6 +21,18 @@ pub fn run() {
             sql: include_str!("../migrations/003_add_delivered.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 4,
+            description: "add shipped_at and pronouns",
+            sql: include_str!("../migrations/004_shipped_at_pronouns.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 5,
+            description: "quotes table",
+            sql: include_str!("../migrations/005_quotes.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

@@ -30,7 +30,7 @@ function FinalizePanel({ sale, onSave, onClose }) {
     setSaving(true);
     try {
       await execute(
-        `UPDATE projects SET material_cost_cents = ?, sale_price_cents = ?, shipped = 1 WHERE id = ?`,
+        `UPDATE projects SET material_cost_cents = ?, sale_price_cents = ?, shipped = 1, shipped_at = date('now') WHERE id = ?`,
         [materialCents, saleCents, sale.id]
       );
       onSave();

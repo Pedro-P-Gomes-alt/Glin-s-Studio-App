@@ -47,7 +47,23 @@ function fmtWeek(isoDate) {
   });
 }
 
+const MONTH_NAMES = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December",
+];
+
+function trendArrow(current, avg) {
+  if (!avg || avg === 0) return null;
+  const pctDiff = ((current - avg) / avg) * 100;
+  if (pctDiff > 5)  return { icon: "↑", label: `+${pctDiff.toFixed(0)}%`, cls: "trend-up" };
+  if (pctDiff < -5) return { icon: "↓", label: `${pctDiff.toFixed(0)}%`, cls: "trend-down" };
+  return { icon: "→", label: "on track", cls: "trend-flat" };
+}
+
 export default function Dashboard() {
+  const [monthWage, setMonthWage]     = useState(null);
+  const [monthAvg, setMonthAvg]       = useState(null);
+  const [monthHours, setMonthHours]   = useState(0);
   const [overview, setOverview]       = useState(null);
   const [byCategory, setByCategory]   = useState([]);
   const [bySubtype, setBySubtype]     = useState([]);
@@ -59,7 +75,36 @@ export default function Dashboard() {
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    const [ov, cats, subs, cls, split, wh, pip] = await Promise.all([
+    const [mw, mavg, mh, ov, cats, subs, cls, split, wh, pip] = await Promise.all([
+      // This month's shipped profit
+      query(`
+        SELECT COALESCE(SUM(p.sale_price_cents - p.material_cost_cents), 0) AS profit,
+               COALESCE(SUM(p.sale_price_cents), 0) AS revenue,
+               COUNT(DISTINCT p.id) AS count
+        FROM projects p
+        WHERE p.shipped = 1
+          AND strftime('%Y-%m', COALESCE(p.shipped_at, p.created_at)) = strftime('%Y-%m', 'now')
+      `),
+      // Previous 3-month average
+      query(`
+        SELECT AVG(mp) AS avg_profit, AVG(mr) AS avg_revenue, COUNT(*) AS months
+        FROM (
+          SELECT strftime('%Y-%m', COALESCE(shipped_at, created_at)) AS m,
+                 SUM(sale_price_cents - material_cost_cents) AS mp,
+                 SUM(sale_price_cents) AS mr
+          FROM projects
+          WHERE shipped = 1
+            AND strftime('%Y-%m', COALESCE(shipped_at, created_at)) < strftime('%Y-%m', 'now')
+            AND COALESCE(shipped_at, created_at) >= date('now', '-3 months', 'start of month')
+          GROUP BY m
+        ) sub
+      `),
+      // Hours logged this calendar month
+      query(`
+        SELECT COALESCE(SUM(hours), 0) AS hours
+        FROM time_logs
+        WHERE strftime('%Y-%m', date) = strftime('%Y-%m', 'now')
+      `),
       query(`
         SELECT COUNT(DISTINCT p.id) AS total,
                COALESCE(SUM(p.sale_price_cents), 0) AS revenue,
@@ -134,6 +179,9 @@ export default function Dashboard() {
       `),
     ]);
 
+    setMonthWage(mw[0] ?? null);
+    setMonthAvg(mavg[0] ?? null);
+    setMonthHours(mh[0]?.hours ?? 0);
     setOverview(ov[0] ?? null);
     setByCategory(cats);
     setBySubtype(subs);
@@ -168,10 +216,48 @@ export default function Dashboard() {
 
   const totalClients = clientSplit ? clientSplit.new_clients + clientSplit.repeat_clients : 0;
 
+  const now = new Date();
+  const monthLabel = `${MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`;
+  const trend = monthWage && monthAvg?.avg_profit
+    ? trendArrow(monthWage.profit, monthAvg.avg_profit)
+    : null;
+
   return (
     <div className="page">
       <div className="page-header">
         <h1>Dashboard</h1>
+      </div>
+
+      {/* ── Monthly wage ── */}
+      <div className="month-wage-card">
+        <div className="month-wage-left">
+          <div className="month-wage-label">{monthLabel}</div>
+          <div className="month-wage-value">
+            {formatEuro(monthWage?.profit ?? 0)}
+          </div>
+          <div className="month-wage-sub">
+            {monthWage?.count > 0
+              ? `${monthWage.count} commission${monthWage.count !== 1 ? "s" : ""} shipped`
+              : "No commissions shipped yet this month"}
+            {monthHours > 0 && ` · ${monthHours}h worked`}
+          </div>
+        </div>
+        <div className="month-wage-right">
+          {trend && (
+            <div className={`month-wage-trend ${trend.cls}`}>
+              <span className="trend-icon">{trend.icon}</span>
+              <span className="trend-label">{trend.label}</span>
+            </div>
+          )}
+          {monthAvg?.avg_profit > 0 && (
+            <div className="month-wage-avg">
+              3-month avg: {formatEuro(Math.round(monthAvg.avg_profit))}
+            </div>
+          )}
+          {!monthAvg?.avg_profit && (
+            <div className="month-wage-avg muted">Ship commissions to see trend</div>
+          )}
+        </div>
       </div>
 
       {/* ── Summary cards ── */}
