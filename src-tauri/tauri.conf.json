@@ -25,13 +25,26 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM3MDU2QTgwOTIwRTg5MTMKUldRVGlRNlNnR29GeHdQcGRFUTF0bW1kTTlrWmtzc1luSGtCV3ZGa3B1QVZHMGwwcjNhK0cxWU0K",
+      "endpoints": [
+        "https://github.com/Pedro-P-Gomes-alt/Glin-s-Studio-App/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

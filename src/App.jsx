@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import "./App.css";
 import Dashboard from "./pages/Dashboard";
 import Sales from "./pages/Sales";
@@ -181,6 +183,16 @@ export default function App() {
   const [socialErrors, setSocialErrors] = useState({});
   const [toast, setToast]             = useState(null);
   const quotePollRef = useRef(null);
+
+  // Check for app updates once on startup
+  useEffect(() => {
+    check().then(update => {
+      if (!update) return;
+      if (window.confirm(`Version ${update.version} is available.\n\nInstall now? The app will restart automatically.`)) {
+        update.downloadAndInstall().then(() => relaunch()).catch(console.error);
+      }
+    }).catch(() => {});
+  }, []);
 
   // Apply font settings
   useEffect(() => {
