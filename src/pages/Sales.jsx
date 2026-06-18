@@ -355,7 +355,7 @@ export default function Sales() {
           AND p.project_type = 'commission'
         ORDER BY p.created_at DESC
       `),
-      query(`SELECT * FROM categories ORDER BY category, subtype`),
+      query(`SELECT * FROM categories ORDER BY category, sort_order, subtype`),
       query(`SELECT id, name FROM clients ORDER BY name`),
     ]);
     setSales(s);

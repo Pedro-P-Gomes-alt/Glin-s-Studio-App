@@ -45,6 +45,12 @@ pub fn run() {
             sql: include_str!("../migrations/007_social.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 8,
+            description: "categories sort order",
+            sql: include_str!("../migrations/008_categories_sort_order.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

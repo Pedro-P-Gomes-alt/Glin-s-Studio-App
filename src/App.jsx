@@ -46,6 +46,48 @@ function SettingsPanel({ settings, quotesConfig, socialConfig,
   function setQuote(k, v) { const n = { ...quotesConfig, [k]: v };    onChangeQuotes(n);   localStorage.setItem("glins_quotes_config", JSON.stringify(n)); }
   function setSocial(k, v){ const n = { ...socialConfig, [k]: v };    onChangeSocial(n);   localStorage.setItem("glins_social_config", JSON.stringify(n)); }
 
+  const [cats, setCats] = useState([]);
+  const [newSub, setNewSub] = useState({ cosplay: "", sports: "" });
+
+  useEffect(() => {
+    query("SELECT * FROM categories ORDER BY category, sort_order, id").then(setCats);
+  }, []);
+
+  async function moveCat(cat, dir) {
+    const group = cats
+      .filter(c => c.category === cat.category)
+      .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+    const idx = group.findIndex(c => c.id === cat.id);
+    const neighbour = group[idx + dir];
+    if (!neighbour) return;
+    await execute("UPDATE categories SET sort_order = ? WHERE id = ?", [neighbour.sort_order, cat.id]);
+    await execute("UPDATE categories SET sort_order = ? WHERE id = ?", [cat.sort_order, neighbour.id]);
+    setCats(await query("SELECT * FROM categories ORDER BY category, sort_order, id"));
+  }
+
+  async function addSubtype(category) {
+    const name = newSub[category].trim();
+    if (!name) return;
+    const maxOrder = cats.filter(c => c.category === category)
+      .reduce((m, c) => Math.max(m, c.sort_order), 0);
+    await execute(
+      "INSERT OR IGNORE INTO categories (category, subtype, sort_order) VALUES (?, ?, ?)",
+      [category, name, maxOrder + 1]
+    );
+    setNewSub(s => ({ ...s, [category]: "" }));
+    setCats(await query("SELECT * FROM categories ORDER BY category, sort_order, id"));
+  }
+
+  async function deleteSubtype(cat) {
+    const rows = await query("SELECT COUNT(*) AS n FROM projects WHERE category_id = ?", [cat.id]);
+    if (rows[0].n > 0) {
+      alert(`"${cat.subtype}" is used by ${rows[0].n} project(s) and cannot be deleted.`);
+      return;
+    }
+    await execute("DELETE FROM categories WHERE id = ?", [cat.id]);
+    setCats(prev => prev.filter(c => c.id !== cat.id));
+  }
+
   const tokenDaysLeft = (() => {
     if (!socialConfig.ig_token_refreshed_at) return null;
     const refreshed = new Date(socialConfig.ig_token_refreshed_at);
@@ -90,6 +132,45 @@ function SettingsPanel({ settings, quotesConfig, socialConfig,
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Categories */}
+          <div className="settings-section">
+            <div className="settings-section-title">Categories &amp; Subtypes</div>
+            <p className="settings-hint" style={{ marginBottom: 12 }}>
+              Reorder or add subtypes shown in the dropdown when creating an order.
+            </p>
+            {["cosplay", "sports"].map(cat => {
+              const group = cats
+                .filter(c => c.category === cat)
+                .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+              return (
+                <div key={cat} style={{ marginBottom: 16 }}>
+                  <div style={{ fontWeight: 600, fontSize: "0.8em", textTransform: "uppercase",
+                                letterSpacing: "0.06em", opacity: 0.5, marginBottom: 6 }}>
+                    {cat}
+                  </div>
+                  {group.map((c, i) => (
+                    <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                      <span style={{ flex: 1 }}>{c.subtype}</span>
+                      <button className="btn-icon" onClick={() => moveCat(c, -1)} disabled={i === 0} title="Move up">↑</button>
+                      <button className="btn-icon" onClick={() => moveCat(c, 1)} disabled={i === group.length - 1} title="Move down">↓</button>
+                      <button className="btn-icon" onClick={() => deleteSubtype(c)} title="Delete">✕</button>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    <input
+                      style={{ flex: 1 }}
+                      value={newSub[cat]}
+                      placeholder={`New ${cat} subtype…`}
+                      onChange={e => setNewSub(s => ({ ...s, [cat]: e.target.value }))}
+                      onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addSubtype(cat); } }}
+                    />
+                    <button className="btn-ghost sm" onClick={() => addSubtype(cat)}>+ Add</button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {/* Quotes */}
