@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { restart } from "@tauri-apps/plugin-process";
 import "./App.css";
 import Dashboard from "./pages/Dashboard";
 import Sales from "./pages/Sales";
@@ -189,7 +189,7 @@ export default function App() {
     check().then(update => {
       if (!update) return;
       if (window.confirm(`Version ${update.version} is available.\n\nInstall now? The app will restart automatically.`)) {
-        update.downloadAndInstall().then(() => relaunch()).catch(console.error);
+        update.downloadAndInstall().then(() => restart()).catch(console.error);
       }
     }).catch(() => {});
   }, []);
