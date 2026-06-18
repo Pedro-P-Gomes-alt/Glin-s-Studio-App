@@ -1,5 +1,6 @@
 import { useState } from "react";
 import "./App.css";
+import Sales from "./pages/Sales";
 
 const NAV = [
   { id: "dashboard",   label: "Dashboard" },
@@ -11,15 +12,17 @@ const NAV = [
 
 function Placeholder({ name }) {
   return (
-    <div className="placeholder">
-      <h2>{name}</h2>
-      <p>Coming soon.</p>
+    <div className="page">
+      <div className="page-header">
+        <h1>{name}</h1>
+      </div>
+      <p className="empty-state">Coming soon.</p>
     </div>
   );
 }
 
 export default function App() {
-  const [page, setPage] = useState("dashboard");
+  const [page, setPage] = useState("sales");
 
   return (
     <div className="layout">
@@ -41,7 +44,7 @@ export default function App() {
 
       <main className="content">
         {page === "dashboard"   && <Placeholder name="Dashboard" />}
-        {page === "sales"       && <Placeholder name="Sales" />}
+        {page === "sales"       && <Sales />}
         {page === "timekeeping" && <Placeholder name="Timekeeping" />}
         {page === "calendar"    && <Placeholder name="Calendar" />}
         {page === "board"       && <Placeholder name="Board" />}
