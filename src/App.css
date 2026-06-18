@@ -583,7 +583,7 @@ body {
 
 .board-col--todo    .board-col-header { background: #F5F5F5; color: #555; }
 .board-col--doing   .board-col-header { background: var(--pink-light); color: var(--pink-rich); }
-.board-col--overdue .board-col-header { background: #FFF0F0; color: var(--negative); }
+.board-col--pending .board-col-header { background: #FFF8E1; color: #B45309; }
 .board-col--done    .board-col-header { background: #F0FFF4; color: var(--positive); }
 
 .board-col-count {
@@ -624,8 +624,8 @@ body {
   box-shadow: 0 2px 8px rgba(0,0,0,0.06);
 }
 
-.board-col--overdue .board-card {
-  border-left: 3px solid var(--negative);
+.board-col--pending .board-card {
+  border-left: 3px solid #F59E0B;
 }
 
 .board-card-title {
@@ -892,3 +892,86 @@ body {
   background: repeating-linear-gradient(-45deg, #EFEFEF, #EFEFEF 3px, #E0E0E0 3px, #E0E0E0 6px);
   border: 1px solid #CCC;
 }
+
+/* ── Sales sections ────────────────────────── */
+.sales-section { margin-bottom: 32px; }
+
+.sales-section-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.btn-finalize {
+  background: none;
+  border: 1px solid var(--pink-border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--pink-rich);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.1s, border-color 0.1s;
+}
+.btn-finalize:hover {
+  background: var(--pink-light);
+  border-color: var(--pink-rich);
+}
+
+/* ── Finalize Sale panel ───────────────────── */
+.panel-subtitle {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.finalize-stats {
+  display: flex;
+  gap: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.fstat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 14px;
+}
+.fstat + .fstat { border-left: 1px solid var(--border); }
+
+.fstat-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+
+.fstat-value {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.btn-ship {
+  background: var(--positive);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 9px 18px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+  transition: background 0.15s;
+}
+.btn-ship:hover { background: #236040; }
+.btn-ship:disabled { opacity: 0.4; cursor: default; }
