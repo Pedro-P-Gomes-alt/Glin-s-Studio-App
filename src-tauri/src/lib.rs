@@ -33,6 +33,12 @@ pub fn run() {
             sql: include_str!("../migrations/005_quotes.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 6,
+            description: "personal projects and payments",
+            sql: include_str!("../migrations/006_personal_payments.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

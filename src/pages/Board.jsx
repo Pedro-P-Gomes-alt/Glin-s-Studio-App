@@ -50,8 +50,14 @@ function ProjectCard({ project, onDeliver, onReturn, onDelete }) {
       )}
 
       <div className="board-card-meta">
-        <span className="badge">{project.category}</span>
-        <span className="board-card-sub">{project.subtype}</span>
+        {project.project_type === "personal" ? (
+          <span className="badge badge--personal">{project.personal_category ?? "personal"}</span>
+        ) : (
+          <>
+            <span className="badge">{project.category}</span>
+            <span className="board-card-sub">{project.subtype}</span>
+          </>
+        )}
       </div>
 
       {(project.planned_start || project.planned_end) && (
@@ -115,7 +121,7 @@ export default function Board() {
     const rows = await query(`
       SELECT p.id, p.title, p.planned_start, p.planned_end,
              p.material_cost_cents, p.sale_price_cents, p.status_override,
-             p.shipped, p.delivered,
+             p.shipped, p.delivered, p.project_type, p.personal_category,
              c.name AS client_name,
              cat.category, cat.subtype,
              COALESCE(SUM(tl.hours), 0) AS total_hours,
@@ -209,7 +215,11 @@ export default function Board() {
                     <tr key={p.id}>
                       <td>{p.title}</td>
                       <td>{p.client_name ?? "—"}</td>
-                      <td><span className="badge">{p.category}</span> {p.subtype}</td>
+                      <td>
+                        {p.project_type === "personal"
+                          ? <span className="badge badge--personal">{p.personal_category ?? "personal"}</span>
+                          : <><span className="badge">{p.category}</span> {p.subtype}</>}
+                      </td>
                       <td>{formatEuro(p.sale_price_cents)}</td>
                       <td className={profit >= 0 ? "positive" : "negative"}>{formatEuro(profit)}</td>
                       <td>{formatMargin(profit, p.sale_price_cents)}</td>

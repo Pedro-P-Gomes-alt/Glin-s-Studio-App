@@ -2,6 +2,21 @@ import { useState, useEffect } from "react";
 import { query } from "../db";
 import { formatEuro, formatEuroPerHour, formatMargin } from "../utils/money";
 
+const PERSONAL_CAT_META = [
+  { key: "video",       label: "YouTube",     color: "#E53935" },
+  { key: "short",       label: "Short-form",  color: "#8E24AA" },
+  { key: "competition", label: "Competition", color: "#0288D1" },
+  { key: "other",       label: "Other",       color: "#546E7A" },
+];
+
+function personalLabel(key) {
+  return PERSONAL_CAT_META.find(m => m.key === key)?.label ?? key;
+}
+
+function personalColor(key) {
+  return PERSONAL_CAT_META.find(m => m.key === key)?.color ?? "var(--muted)";
+}
+
 function pct(value, max) {
   return max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
 }
@@ -47,6 +62,13 @@ function fmtWeek(isoDate) {
   });
 }
 
+function fmtMonth(ym) {
+  if (!ym) return "";
+  const [y, m] = ym.split("-");
+  const d = new Date(Number(y), Number(m) - 1, 1);
+  return d.toLocaleDateString("en-GB", { month: "short", year: "2-digit" });
+}
+
 const MONTH_NAMES = [
   "January","February","March","April","May","June",
   "July","August","September","October","November","December",
@@ -61,7 +83,10 @@ function trendArrow(current, avg) {
 }
 
 export default function Dashboard() {
-  const [monthWage, setMonthWage]     = useState(null);
+  const [activeTab, setActiveTab]     = useState("overview");
+
+  // Overview state
+  const [monthCash, setMonthCash]     = useState(null);
   const [monthAvg, setMonthAvg]       = useState(null);
   const [monthHours, setMonthHours]   = useState(0);
   const [overview, setOverview]       = useState(null);
@@ -72,114 +97,141 @@ export default function Dashboard() {
   const [weeklyHours, setWeeklyHours] = useState([]);
   const [pipeline, setPipeline]       = useState(null);
 
+  // Personal state
+  const [personalThisMonth, setPersonalThisMonth] = useState([]);
+  const [personalTrend, setPersonalTrend]           = useState([]);
+
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    const [mw, mavg, mh, ov, cats, subs, cls, split, wh, pip] = await Promise.all([
-      // This month's shipped profit
-      query(`
-        SELECT COALESCE(SUM(p.sale_price_cents - p.material_cost_cents), 0) AS profit,
-               COALESCE(SUM(p.sale_price_cents), 0) AS revenue,
-               COUNT(DISTINCT p.id) AS count
-        FROM projects p
-        WHERE p.shipped = 1
-          AND strftime('%Y-%m', COALESCE(p.shipped_at, p.created_at)) = strftime('%Y-%m', 'now')
-      `),
-      // Previous 3-month average
-      query(`
-        SELECT AVG(mp) AS avg_profit, AVG(mr) AS avg_revenue, COUNT(*) AS months
-        FROM (
-          SELECT strftime('%Y-%m', COALESCE(shipped_at, created_at)) AS m,
-                 SUM(sale_price_cents - material_cost_cents) AS mp,
-                 SUM(sale_price_cents) AS mr
+    const [mw, mavg, mh, ov, cats, subs, cls, split, wh, pip, pmth, ptrend] =
+      await Promise.all([
+        // Cash received via payments this month (by received_on date)
+        query(`
+          SELECT COALESCE(SUM(amount_cents), 0) AS received,
+                 COUNT(DISTINCT project_id) AS count
+          FROM payments
+          WHERE strftime('%Y-%m', received_on) = strftime('%Y-%m', 'now')
+        `),
+        // 3-month trailing average of monthly cash received
+        query(`
+          SELECT AVG(monthly) AS avg_received
+          FROM (
+            SELECT strftime('%Y-%m', received_on) AS m,
+                   SUM(amount_cents) AS monthly
+            FROM payments
+            WHERE strftime('%Y-%m', received_on) < strftime('%Y-%m', 'now')
+              AND received_on >= date('now', '-3 months', 'start of month')
+            GROUP BY m
+          ) sub
+        `),
+        // Hours logged this calendar month
+        query(`
+          SELECT COALESCE(SUM(hours), 0) AS hours
+          FROM time_logs
+          WHERE strftime('%Y-%m', date) = strftime('%Y-%m', 'now')
+        `),
+        // All-time stats from shipped commissions
+        query(`
+          SELECT COUNT(DISTINCT p.id) AS total,
+                 COALESCE(SUM(p.sale_price_cents), 0) AS revenue,
+                 COALESCE(SUM(p.sale_price_cents - p.material_cost_cents), 0) AS profit,
+                 COALESCE(SUM(tl.hours), 0) AS hours
+          FROM projects p
+          LEFT JOIN time_logs tl ON tl.project_id = p.id
+          WHERE p.shipped = 1 AND p.project_type = 'commission'
+        `),
+        query(`
+          SELECT cat.category,
+                 COUNT(DISTINCT p.id) AS count,
+                 COALESCE(SUM(p.sale_price_cents), 0) AS revenue,
+                 COALESCE(SUM(p.sale_price_cents - p.material_cost_cents), 0) AS profit,
+                 COALESCE(SUM(tl.hours), 0) AS hours
+          FROM projects p
+          JOIN categories cat ON p.category_id = cat.id
+          LEFT JOIN time_logs tl ON tl.project_id = p.id
+          WHERE p.shipped = 1
+          GROUP BY cat.category
+          ORDER BY profit DESC
+        `),
+        query(`
+          SELECT cat.category, cat.subtype,
+                 COUNT(DISTINCT p.id) AS count,
+                 COALESCE(SUM(p.sale_price_cents), 0) AS revenue,
+                 COALESCE(SUM(p.sale_price_cents - p.material_cost_cents), 0) AS profit,
+                 COALESCE(SUM(tl.hours), 0) AS hours
+          FROM projects p
+          JOIN categories cat ON p.category_id = cat.id
+          LEFT JOIN time_logs tl ON tl.project_id = p.id
+          WHERE p.shipped = 1
+          GROUP BY cat.category, cat.subtype
+          ORDER BY profit DESC
+        `),
+        query(`
+          SELECT c.name,
+                 COUNT(p.id) AS commissions,
+                 COALESCE(SUM(p.sale_price_cents), 0) AS lifetime_value
+          FROM clients c
+          JOIN projects p ON p.client_id = c.id
+          WHERE p.shipped = 1
+          GROUP BY c.id
+          ORDER BY lifetime_value DESC
+          LIMIT 5
+        `),
+        query(`
+          SELECT
+            COUNT(DISTINCT CASE WHEN sub.cnt = 1 THEN sub.client_id END) AS new_clients,
+            COUNT(DISTINCT CASE WHEN sub.cnt > 1 THEN sub.client_id END) AS repeat_clients
+          FROM (
+            SELECT client_id, COUNT(*) AS cnt
+            FROM projects
+            WHERE shipped = 1 AND client_id IS NOT NULL
+            GROUP BY client_id
+          ) sub
+        `),
+        query(`
+          SELECT strftime('%Y-W%W', date) AS week,
+                 MIN(date) AS week_start,
+                 ROUND(SUM(hours), 2) AS hours
+          FROM time_logs
+          WHERE date >= date('now', '-70 days')
+          GROUP BY week
+          ORDER BY week
+        `),
+        query(`
+          SELECT COUNT(*) AS count,
+                 COALESCE(SUM(sale_price_cents), 0) AS value
           FROM projects
-          WHERE shipped = 1
-            AND strftime('%Y-%m', COALESCE(shipped_at, created_at)) < strftime('%Y-%m', 'now')
-            AND COALESCE(shipped_at, created_at) >= date('now', '-3 months', 'start of month')
-          GROUP BY m
-        ) sub
-      `),
-      // Hours logged this calendar month
-      query(`
-        SELECT COALESCE(SUM(hours), 0) AS hours
-        FROM time_logs
-        WHERE strftime('%Y-%m', date) = strftime('%Y-%m', 'now')
-      `),
-      query(`
-        SELECT COUNT(DISTINCT p.id) AS total,
-               COALESCE(SUM(p.sale_price_cents), 0) AS revenue,
-               COALESCE(SUM(p.sale_price_cents - p.material_cost_cents), 0) AS profit,
-               COALESCE(SUM(tl.hours), 0) AS hours
-        FROM projects p
-        LEFT JOIN time_logs tl ON tl.project_id = p.id
-        WHERE p.shipped = 1
-      `),
-      query(`
-        SELECT cat.category,
-               COUNT(DISTINCT p.id) AS count,
-               COALESCE(SUM(p.sale_price_cents), 0) AS revenue,
-               COALESCE(SUM(p.sale_price_cents - p.material_cost_cents), 0) AS profit,
-               COALESCE(SUM(tl.hours), 0) AS hours
-        FROM projects p
-        JOIN categories cat ON p.category_id = cat.id
-        LEFT JOIN time_logs tl ON tl.project_id = p.id
-        WHERE p.shipped = 1
-        GROUP BY cat.category
-        ORDER BY profit DESC
-      `),
-      query(`
-        SELECT cat.category, cat.subtype,
-               COUNT(DISTINCT p.id) AS count,
-               COALESCE(SUM(p.sale_price_cents), 0) AS revenue,
-               COALESCE(SUM(p.sale_price_cents - p.material_cost_cents), 0) AS profit,
-               COALESCE(SUM(tl.hours), 0) AS hours
-        FROM projects p
-        JOIN categories cat ON p.category_id = cat.id
-        LEFT JOIN time_logs tl ON tl.project_id = p.id
-        WHERE p.shipped = 1
-        GROUP BY cat.category, cat.subtype
-        ORDER BY profit DESC
-      `),
-      query(`
-        SELECT c.name,
-               COUNT(p.id) AS commissions,
-               COALESCE(SUM(p.sale_price_cents), 0) AS lifetime_value
-        FROM clients c
-        JOIN projects p ON p.client_id = c.id
-        WHERE p.shipped = 1
-        GROUP BY c.id
-        ORDER BY lifetime_value DESC
-        LIMIT 5
-      `),
-      query(`
-        SELECT
-          COUNT(DISTINCT CASE WHEN sub.cnt = 1 THEN sub.client_id END) AS new_clients,
-          COUNT(DISTINCT CASE WHEN sub.cnt > 1 THEN sub.client_id END) AS repeat_clients
-        FROM (
-          SELECT client_id, COUNT(*) AS cnt
+          WHERE shipped = 0 AND delivered = 0
+            AND sale_price_cents IS NOT NULL
+            AND project_type = 'commission'
+        `),
+        // Personal: this month by category
+        query(`
+          SELECT p.personal_category AS cat,
+                 COUNT(DISTINCT p.id) AS count,
+                 COALESCE((
+                   SELECT SUM(hours) FROM time_logs WHERE project_id = p.id
+                 ), 0) AS hours
+          FROM projects p
+          WHERE p.project_type = 'personal'
+            AND strftime('%Y-%m', p.created_at) = strftime('%Y-%m', 'now')
+          GROUP BY p.personal_category
+        `),
+        // Personal: last 6 months trend by category
+        query(`
+          SELECT strftime('%Y-%m', created_at) AS month,
+                 personal_category AS cat,
+                 COUNT(*) AS count
           FROM projects
-          WHERE shipped = 1 AND client_id IS NOT NULL
-          GROUP BY client_id
-        ) sub
-      `),
-      query(`
-        SELECT strftime('%Y-W%W', date) AS week,
-               MIN(date) AS week_start,
-               ROUND(SUM(hours), 2) AS hours
-        FROM time_logs
-        WHERE date >= date('now', '-70 days')
-        GROUP BY week
-        ORDER BY week
-      `),
-      query(`
-        SELECT COUNT(*) AS count,
-               COALESCE(SUM(sale_price_cents), 0) AS value
-        FROM projects
-        WHERE shipped = 0 AND delivered = 0 AND sale_price_cents IS NOT NULL
-      `),
-    ]);
+          WHERE project_type = 'personal'
+            AND created_at >= date('now', '-6 months', 'start of month')
+          GROUP BY month, personal_category
+          ORDER BY month
+        `),
+      ]);
 
-    setMonthWage(mw[0] ?? null);
+    setMonthCash(mw[0] ?? null);
     setMonthAvg(mavg[0] ?? null);
     setMonthHours(mh[0]?.hours ?? 0);
     setOverview(ov[0] ?? null);
@@ -189,6 +241,8 @@ export default function Dashboard() {
     setClientSplit(split[0] ?? null);
     setWeeklyHours(wh);
     setPipeline(pip[0] ?? null);
+    setPersonalThisMonth(pmth);
+    setPersonalTrend(ptrend);
   }
 
   const noShipped = !overview || overview.total === 0;
@@ -198,7 +252,6 @@ export default function Dashboard() {
   const maxClientVal   = Math.max(...topClients.map(c => c.lifetime_value), 1);
   const maxWeekHours   = Math.max(...weeklyHours.map(w => w.hours), 1);
 
-  // One observation when we have enough data
   function observation() {
     if (byCategory.length < 2) return null;
     const withHours = byCategory.filter(c => c.hours > 0 && c.revenue > 0);
@@ -215,206 +268,134 @@ export default function Dashboard() {
   const obs = observation();
 
   const totalClients = clientSplit ? clientSplit.new_clients + clientSplit.repeat_clients : 0;
-
   const now = new Date();
   const monthLabel = `${MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`;
-  const trend = monthWage && monthAvg?.avg_profit
-    ? trendArrow(monthWage.profit, monthAvg.avg_profit)
-    : null;
+  const cashReceived = monthCash?.received ?? 0;
+  const avgReceived  = monthAvg?.avg_received ?? 0;
+  const trend = avgReceived > 0 ? trendArrow(cashReceived, avgReceived) : null;
+
+  // Personal trend data processing
+  const trendMonths = [...new Set(personalTrend.map(r => r.month))].sort();
+  const trendByCat = {};
+  for (const r of personalTrend) {
+    if (!trendByCat[r.cat]) trendByCat[r.cat] = {};
+    trendByCat[r.cat][r.month] = r.count;
+  }
+  const activeTrendCats = Object.keys(trendByCat).sort();
 
   return (
     <div className="page">
       <div className="page-header">
         <h1>Dashboard</h1>
+        <div className="dash-tab-bar">
+          <button
+            className={`dash-tab${activeTab === "overview" ? " active" : ""}`}
+            onClick={() => setActiveTab("overview")}>Overview</button>
+          <button
+            className={`dash-tab${activeTab === "personal" ? " active" : ""}`}
+            onClick={() => setActiveTab("personal")}>Personal</button>
+        </div>
       </div>
 
-      {/* ── Monthly wage ── */}
-      <div className="month-wage-card">
-        <div className="month-wage-left">
-          <div className="month-wage-label">{monthLabel}</div>
-          <div className="month-wage-value">
-            {formatEuro(monthWage?.profit ?? 0)}
+      {/* ──────────────── OVERVIEW TAB ──────────────── */}
+      {activeTab === "overview" && <>
+        {/* Monthly wage — cash received */}
+        <div className="month-wage-card">
+          <div className="month-wage-left">
+            <div className="month-wage-label">{monthLabel}</div>
+            <div className="month-wage-value">{formatEuro(cashReceived)}</div>
+            <div className="month-wage-sub">
+              {(monthCash?.count ?? 0) > 0
+                ? `Payments from ${monthCash.count} commission${monthCash.count !== 1 ? "s" : ""}`
+                : "No payments recorded this month"}
+              {monthHours > 0 && ` · ${monthHours}h worked`}
+            </div>
           </div>
-          <div className="month-wage-sub">
-            {monthWage?.count > 0
-              ? `${monthWage.count} commission${monthWage.count !== 1 ? "s" : ""} shipped`
-              : "No commissions shipped yet this month"}
-            {monthHours > 0 && ` · ${monthHours}h worked`}
+          <div className="month-wage-right">
+            {trend && (
+              <div className={`month-wage-trend ${trend.cls}`}>
+                <span className="trend-icon">{trend.icon}</span>
+                <span className="trend-label">{trend.label}</span>
+              </div>
+            )}
+            {avgReceived > 0 && (
+              <div className="month-wage-avg">
+                3-month avg: {formatEuro(Math.round(avgReceived))}
+              </div>
+            )}
+            {!avgReceived && (
+              <div className="month-wage-avg muted">Record payments to see trend</div>
+            )}
           </div>
         </div>
-        <div className="month-wage-right">
-          {trend && (
-            <div className={`month-wage-trend ${trend.cls}`}>
-              <span className="trend-icon">{trend.icon}</span>
-              <span className="trend-label">{trend.label}</span>
-            </div>
-          )}
-          {monthAvg?.avg_profit > 0 && (
-            <div className="month-wage-avg">
-              3-month avg: {formatEuro(Math.round(monthAvg.avg_profit))}
-            </div>
-          )}
-          {!monthAvg?.avg_profit && (
-            <div className="month-wage-avg muted">Ship commissions to see trend</div>
-          )}
+
+        {/* Summary cards */}
+        <div className="stat-grid">
+          <StatCard
+            label="Total revenue"
+            value={overview ? formatEuro(overview.revenue) : "—"}
+            note={overview?.total > 0
+              ? `${overview.total} commission${overview.total !== 1 ? "s" : ""} shipped`
+              : "No shipped commissions yet"}
+          />
+          <StatCard
+            label="Total profit"
+            value={overview ? formatEuro(overview.profit) : "—"}
+            note={overview?.revenue > 0
+              ? `${((overview.profit / overview.revenue) * 100).toFixed(1)}% overall margin`
+              : undefined}
+          />
+          <StatCard
+            label="Avg €/hour"
+            value={overview?.hours > 0
+              ? `€${(overview.profit / 100 / overview.hours).toFixed(2)}`
+              : "—"}
+            note={overview?.hours > 0
+              ? `across ${overview.hours}h logged`
+              : "Log time on commissions to see this"}
+          />
+          <StatCard
+            label="Active pipeline"
+            value={pipeline ? formatEuro(pipeline.value) : "—"}
+            note={pipeline?.count > 0
+              ? `${pipeline.count} commission${pipeline.count !== 1 ? "s" : ""} in progress`
+              : "No open commissions"}
+          />
         </div>
-      </div>
 
-      {/* ── Summary cards ── */}
-      <div className="stat-grid">
-        <StatCard
-          label="Total revenue"
-          value={overview ? formatEuro(overview.revenue) : "—"}
-          note={overview?.total > 0
-            ? `${overview.total} commission${overview.total !== 1 ? "s" : ""} shipped`
-            : "No shipped commissions yet"}
-        />
-        <StatCard
-          label="Total profit"
-          value={overview ? formatEuro(overview.profit) : "—"}
-          note={overview?.revenue > 0
-            ? `${((overview.profit / overview.revenue) * 100).toFixed(1)}% overall margin`
-            : undefined}
-        />
-        <StatCard
-          label="Avg €/hour"
-          value={overview?.hours > 0
-            ? `€${(overview.profit / 100 / overview.hours).toFixed(2)}`
-            : "—"}
-          note={overview?.hours > 0
-            ? `across ${overview.hours}h logged`
-            : "Log time on commissions to see this"}
-        />
-        <StatCard
-          label="Active pipeline"
-          value={pipeline ? formatEuro(pipeline.value) : "—"}
-          note={pipeline?.count > 0
-            ? `${pipeline.count} commission${pipeline.count !== 1 ? "s" : ""} in progress`
-            : "No open commissions"}
-        />
-      </div>
+        {obs && (
+          <div className="dash-observation">
+            <strong>Observation:</strong> {obs}
+          </div>
+        )}
 
-      {obs && (
-        <div className="dash-observation">
-          <strong>Observation:</strong> {obs}
-        </div>
-      )}
-
-      {/* ── Category breakdown ── */}
-      <DashSection title="By Category" hint="Shipped commissions only">
-        {noShipped
-          ? <Empty msg="Ship commissions to see category data." />
-          : (
-            <div className="dash-cat-list">
-              {byCategory.map(cat => (
-                <div key={cat.category} className="dash-cat-row">
-                  <div className="dash-cat-head">
-                    <span className="badge">{cat.category}</span>
-                    <span className="dash-cat-count">{cat.count} job{cat.count !== 1 ? "s" : ""}</span>
-                    <span className="dash-cat-stats">
-                      {formatEuro(cat.revenue)} revenue · {formatEuro(cat.profit)} profit
-                      {cat.hours > 0 && ` · ${formatEuroPerHour(cat.profit, cat.hours)}/h`}
-                    </span>
-                  </div>
-                  <div className="dash-cat-bars">
-                    <div className="dash-cat-bar-row">
-                      <span className="dash-bar-lbl">Revenue</span>
-                      <HBar value={cat.revenue} max={maxCatRevenue} />
-                      <span className="dash-bar-rval">{formatEuro(cat.revenue)}</span>
-                    </div>
-                    <div className="dash-cat-bar-row">
-                      <span className="dash-bar-lbl">Profit</span>
-                      <HBar value={cat.profit} max={maxCatRevenue} color="var(--positive)" />
-                      <span className="dash-bar-rval">{formatEuro(cat.profit)}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )
-        }
-      </DashSection>
-
-      {/* ── Subtype breakdown ── */}
-      <DashSection title="By Work Type" hint="Ranked by profit — ⚠ flags margin below 20%">
-        {noShipped
-          ? <Empty msg="Ship commissions to see work type data." />
-          : (
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Type</th><th>Jobs</th><th>Revenue</th>
-                    <th>Profit</th><th>Margin</th><th>€/hour</th>
-                    <th style={{ width: "120px" }}>Profit bar</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bySubtype.map(s => {
-                    const thinMargin = s.revenue > 0 && (s.profit / s.revenue) < 0.2;
-                    return (
-                      <tr key={`${s.category}-${s.subtype}`}>
-                        <td>
-                          <span className="badge">{s.category}</span>{" "}
-                          {s.subtype}
-                          {thinMargin && <span className="dash-warn" title="Thin margin (under 20%)"> ⚠</span>}
-                        </td>
-                        <td>{s.count}</td>
-                        <td>{formatEuro(s.revenue)}</td>
-                        <td className={s.profit >= 0 ? "positive" : "negative"}>{formatEuro(s.profit)}</td>
-                        <td>{formatMargin(s.profit, s.revenue)}</td>
-                        <td>{s.hours > 0 ? formatEuroPerHour(s.profit, s.hours) : "—"}</td>
-                        <td><HBar value={s.profit} max={maxSubProfit} /></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )
-        }
-      </DashSection>
-
-      {/* ── Weekly hours chart ── */}
-      <DashSection title="Weekly Hours" hint="Last 10 weeks">
-        {weeklyHours.length === 0
-          ? <Empty msg="No time logs yet." />
-          : (
-            <div className="dash-week-chart">
-              {weeklyHours.map((w, i) => (
-                <div key={i} className="dash-week-col">
-                  <span className="dash-week-val">{w.hours > 0 ? `${w.hours}h` : ""}</span>
-                  <div className="dash-week-track">
-                    <div
-                      className="dash-week-fill"
-                      style={{ height: `${pct(w.hours, maxWeekHours)}%` }}
-                    />
-                  </div>
-                  <span className="dash-week-lbl">{fmtWeek(w.week_start)}</span>
-                </div>
-              ))}
-            </div>
-          )
-        }
-      </DashSection>
-
-      {/* ── Client insights ── */}
-      <div className="dash-two-col">
-        <DashSection title="Top Clients" hint="By revenue">
-          {topClients.length === 0
-            ? <Empty msg="No clients on shipped commissions yet." />
+        {/* Category breakdown */}
+        <DashSection title="By Category" hint="Shipped commissions only">
+          {noShipped
+            ? <Empty msg="Ship commissions to see category data." />
             : (
-              <div className="dash-client-list">
-                {topClients.map((c, i) => (
-                  <div key={i} className="dash-client-row">
-                    <span className="dash-rank">#{i + 1}</span>
-                    <div className="dash-client-info">
-                      <span className="dash-client-name">{c.name}</span>
-                      <span className="dash-client-meta">{c.commissions} commission{c.commissions !== 1 ? "s" : ""}</span>
+              <div className="dash-cat-list">
+                {byCategory.map(cat => (
+                  <div key={cat.category} className="dash-cat-row">
+                    <div className="dash-cat-head">
+                      <span className="badge">{cat.category}</span>
+                      <span className="dash-cat-count">{cat.count} job{cat.count !== 1 ? "s" : ""}</span>
+                      <span className="dash-cat-stats">
+                        {formatEuro(cat.revenue)} revenue · {formatEuro(cat.profit)} profit
+                        {cat.hours > 0 && ` · ${formatEuroPerHour(cat.profit, cat.hours)}/h`}
+                      </span>
                     </div>
-                    <div className="dash-client-right">
-                      <span className="dash-client-val">{formatEuro(c.lifetime_value)}</span>
-                      <HBar value={c.lifetime_value} max={maxClientVal} />
+                    <div className="dash-cat-bars">
+                      <div className="dash-cat-bar-row">
+                        <span className="dash-bar-lbl">Revenue</span>
+                        <HBar value={cat.revenue} max={maxCatRevenue} />
+                        <span className="dash-bar-rval">{formatEuro(cat.revenue)}</span>
+                      </div>
+                      <div className="dash-cat-bar-row">
+                        <span className="dash-bar-lbl">Profit</span>
+                        <HBar value={cat.profit} max={maxCatRevenue} color="var(--positive)" />
+                        <span className="dash-bar-rval">{formatEuro(cat.profit)}</span>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -423,30 +404,222 @@ export default function Dashboard() {
           }
         </DashSection>
 
-        <DashSection title="Client Mix" hint="Of shipped commissions">
-          {totalClients === 0
-            ? <Empty msg="No client data yet." />
+        {/* Subtype breakdown */}
+        <DashSection title="By Work Type" hint="Ranked by profit — ⚠ flags margin below 20%">
+          {noShipped
+            ? <Empty msg="Ship commissions to see work type data." />
             : (
-              <div className="dash-split">
-                <div className="dash-split-item">
-                  <span className="dash-split-num">{clientSplit.new_clients}</span>
-                  <span className="dash-split-lbl">New clients</span>
-                </div>
-                <div className="dash-split-sep" />
-                <div className="dash-split-item">
-                  <span className="dash-split-num">{clientSplit.repeat_clients}</span>
-                  <span className="dash-split-lbl">Repeat clients</span>
-                </div>
-                {clientSplit.repeat_clients > 0 && (
-                  <p className="dash-split-note">
-                    {Math.round((clientSplit.repeat_clients / totalClients) * 100)}% of your clients have returned.
-                  </p>
-                )}
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Type</th><th>Jobs</th><th>Revenue</th>
+                      <th>Profit</th><th>Margin</th><th>€/hour</th>
+                      <th style={{ width: "120px" }}>Profit bar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bySubtype.map(s => {
+                      const thinMargin = s.revenue > 0 && (s.profit / s.revenue) < 0.2;
+                      return (
+                        <tr key={`${s.category}-${s.subtype}`}>
+                          <td>
+                            <span className="badge">{s.category}</span>{" "}
+                            {s.subtype}
+                            {thinMargin && <span className="dash-warn" title="Thin margin (under 20%)"> ⚠</span>}
+                          </td>
+                          <td>{s.count}</td>
+                          <td>{formatEuro(s.revenue)}</td>
+                          <td className={s.profit >= 0 ? "positive" : "negative"}>{formatEuro(s.profit)}</td>
+                          <td>{formatMargin(s.profit, s.revenue)}</td>
+                          <td>{s.hours > 0 ? formatEuroPerHour(s.profit, s.hours) : "—"}</td>
+                          <td><HBar value={s.profit} max={maxSubProfit} /></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )
           }
         </DashSection>
-      </div>
+
+        {/* Weekly hours */}
+        <DashSection title="Weekly Hours" hint="Last 10 weeks">
+          {weeklyHours.length === 0
+            ? <Empty msg="No time logs yet." />
+            : (
+              <div className="dash-week-chart">
+                {weeklyHours.map((w, i) => (
+                  <div key={i} className="dash-week-col">
+                    <span className="dash-week-val">{w.hours > 0 ? `${w.hours}h` : ""}</span>
+                    <div className="dash-week-track">
+                      <div
+                        className="dash-week-fill"
+                        style={{ height: `${pct(w.hours, maxWeekHours)}%` }}
+                      />
+                    </div>
+                    <span className="dash-week-lbl">{fmtWeek(w.week_start)}</span>
+                  </div>
+                ))}
+              </div>
+            )
+          }
+        </DashSection>
+
+        {/* Client insights */}
+        <div className="dash-two-col">
+          <DashSection title="Top Clients" hint="By revenue">
+            {topClients.length === 0
+              ? <Empty msg="No clients on shipped commissions yet." />
+              : (
+                <div className="dash-client-list">
+                  {topClients.map((c, i) => (
+                    <div key={i} className="dash-client-row">
+                      <span className="dash-rank">#{i + 1}</span>
+                      <div className="dash-client-info">
+                        <span className="dash-client-name">{c.name}</span>
+                        <span className="dash-client-meta">{c.commissions} commission{c.commissions !== 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="dash-client-right">
+                        <span className="dash-client-val">{formatEuro(c.lifetime_value)}</span>
+                        <HBar value={c.lifetime_value} max={maxClientVal} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            }
+          </DashSection>
+
+          <DashSection title="Client Mix" hint="Of shipped commissions">
+            {totalClients === 0
+              ? <Empty msg="No client data yet." />
+              : (
+                <div className="dash-split">
+                  <div className="dash-split-item">
+                    <span className="dash-split-num">{clientSplit.new_clients}</span>
+                    <span className="dash-split-lbl">New clients</span>
+                  </div>
+                  <div className="dash-split-sep" />
+                  <div className="dash-split-item">
+                    <span className="dash-split-num">{clientSplit.repeat_clients}</span>
+                    <span className="dash-split-lbl">Repeat clients</span>
+                  </div>
+                  {clientSplit.repeat_clients > 0 && (
+                    <p className="dash-split-note">
+                      {Math.round((clientSplit.repeat_clients / totalClients) * 100)}% of your clients have returned.
+                    </p>
+                  )}
+                </div>
+              )
+            }
+          </DashSection>
+        </div>
+      </>}
+
+      {/* ──────────────── PERSONAL TAB ──────────────── */}
+      {activeTab === "personal" && <>
+        {/* This month summary */}
+        <DashSection title="This Month" hint={monthLabel}>
+          {personalThisMonth.length === 0 ? (
+            <Empty msg="No personal projects created this month yet." />
+          ) : (
+            <div className="stat-grid">
+              {PERSONAL_CAT_META.map(m => {
+                const d = personalThisMonth.find(p => p.cat === m.key);
+                if (!d) return null;
+                return (
+                  <div key={m.key} className="stat-card personal-stat-card"
+                    style={{ borderTop: `3px solid ${m.color}` }}>
+                    <div className="stat-label">{m.label}</div>
+                    <div className="stat-value">{d.count}</div>
+                    <div className="stat-note">
+                      {d.hours > 0 ? `${d.hours}h logged` : "No time logged yet"}
+                    </div>
+                  </div>
+                );
+              }).filter(Boolean)}
+            </div>
+          )}
+        </DashSection>
+
+        {/* Content output trend */}
+        <DashSection title="Content Output" hint="Projects created, by month">
+          {activeTrendCats.length === 0 ? (
+            <Empty msg="Create personal projects to see your output trend." />
+          ) : (
+            <div className="personal-trend-wrap">
+              {/* Month labels row */}
+              <div className="personal-trend-row personal-trend-header">
+                <span className="personal-trend-cat-cell" />
+                {trendMonths.map(m => (
+                  <span key={m} className="personal-trend-month-cell">{fmtMonth(m)}</span>
+                ))}
+              </div>
+              {/* Data rows */}
+              {activeTrendCats.map(cat => {
+                const counts = trendMonths.map(m => trendByCat[cat]?.[m] ?? 0);
+                const maxCount = Math.max(...counts, 1);
+                const color = personalColor(cat);
+                return (
+                  <div key={cat} className="personal-trend-row">
+                    <span className="personal-trend-cat-cell" style={{ color }}>
+                      {personalLabel(cat)}
+                    </span>
+                    {trendMonths.map((m, i) => (
+                      <div key={m} className="personal-trend-month-cell">
+                        <div className="personal-trend-bar-wrap">
+                          <div
+                            className="personal-trend-bar"
+                            style={{
+                              height: `${Math.max(4, (counts[i] / maxCount) * 48)}px`,
+                              background: color,
+                              opacity: counts[i] === 0 ? 0.12 : 1,
+                            }}
+                          />
+                        </div>
+                        <span className="personal-trend-num">
+                          {counts[i] > 0 ? counts[i] : ""}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </DashSection>
+
+        {/* Hours by category */}
+        {personalThisMonth.some(p => p.hours > 0) && (
+          <DashSection title="Hours This Month" hint="Per project type">
+            <div className="dash-cat-list">
+              {personalThisMonth.filter(p => p.hours > 0).map(p => {
+                const maxH = Math.max(...personalThisMonth.map(x => x.hours), 1);
+                return (
+                  <div key={p.cat} className="dash-cat-row">
+                    <div className="dash-cat-head">
+                      <span className="personal-badge" style={{ background: personalColor(p.cat) }}>
+                        {personalLabel(p.cat)}
+                      </span>
+                      <span className="dash-cat-count">{p.count} project{p.count !== 1 ? "s" : ""}</span>
+                      <span className="dash-cat-stats">{p.hours}h total</span>
+                    </div>
+                    <div className="dash-cat-bars">
+                      <div className="dash-cat-bar-row">
+                        <span className="dash-bar-lbl">Hours</span>
+                        <HBar value={p.hours} max={maxH} color={personalColor(p.cat)} />
+                        <span className="dash-bar-rval">{p.hours}h</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </DashSection>
+        )}
+      </>}
     </div>
   );
 }

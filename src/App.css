@@ -1922,3 +1922,243 @@ body {
   line-height: 1.4;
   word-break: break-word;
 }
+
+/* ── Dashboard tabs ────────────────────────── */
+.dash-tab-bar {
+  display: flex;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.dash-tab {
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 18px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.dash-tab:hover { color: var(--text); background: rgba(0,0,0,0.04); }
+.dash-tab.active { background: var(--black); color: #fff; }
+
+/* ── Payment column (Commissions table) ─────── */
+.pay-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.pay-partial { color: var(--text); }
+
+.pay-outstanding {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.pay-add-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  color: var(--muted);
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+  flex-shrink: 0;
+  padding: 0;
+}
+.pay-add-btn:hover {
+  border-color: var(--pink-rich);
+  color: var(--pink-rich);
+  background: var(--pink-light);
+}
+
+/* ── Payment dialog (centered modal) ────────── */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 150;
+}
+
+.dialog {
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 28px;
+  width: 380px;
+  max-width: calc(100vw - 40px);
+  box-shadow: 0 12px 48px rgba(0,0,0,0.2);
+  animation: panel-in 0.2s ease;
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.dialog-title {
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--black);
+  margin: 0;
+}
+
+.dialog-sub {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 0 0 4px;
+}
+
+.dialog-hint {
+  font-size: 0.82rem;
+  color: var(--text);
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin: 4px 0 0;
+}
+
+/* ── Finalize payment history ─────────────── */
+.finalize-payments {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.finalize-payments-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.finalize-payment-row {
+  display: flex;
+  gap: 12px;
+  font-size: 0.82rem;
+  align-items: center;
+}
+
+.finalize-payment-total {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+
+/* ── Personal project badge (Board) ─────────── */
+.badge--personal {
+  background: #EDE9FE;
+  color: #6D28D9;
+  border: none;
+  text-transform: capitalize;
+}
+
+/* ── Personal stat card ─────────────────────── */
+.personal-stat-card {
+  border-top-width: 3px;
+  border-top-style: solid;
+}
+
+/* ── Personal trend chart ───────────────────── */
+.personal-trend-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  max-width: 720px;
+}
+
+.personal-trend-row {
+  display: flex;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--border);
+}
+.personal-trend-row:last-child { border-bottom: none; }
+.personal-trend-header { background: var(--bg); align-items: center; }
+
+.personal-trend-cat-cell {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text);
+  width: 120px;
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border-right: 1px solid var(--border);
+}
+
+.personal-trend-month-cell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 4px 8px;
+  gap: 4px;
+  min-width: 48px;
+}
+
+.personal-trend-header .personal-trend-month-cell {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 8px 4px;
+  flex-direction: row;
+  justify-content: center;
+}
+
+.personal-trend-bar-wrap {
+  display: flex;
+  align-items: flex-end;
+  height: 52px;
+}
+
+.personal-trend-bar {
+  width: 20px;
+  border-radius: 3px 3px 0 0;
+  transition: height 0.2s ease;
+}
+
+.personal-trend-num {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text);
+  min-height: 14px;
+}
+
+/* ── Personal hours badge ───────────────────── */
+.personal-badge {
+  display: inline-block;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
