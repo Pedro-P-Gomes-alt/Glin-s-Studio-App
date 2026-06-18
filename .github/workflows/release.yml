@@ -45,6 +45,43 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Glin's Studio ${{ github.ref_name }}"
-          releaseBody: "Download the .exe installer below and run it to update."
+          releaseBody: "Download the .msi installer below and run it to update."
           releaseDraft: false
           prerelease: false
+
+      # tauri-action does not reliably publish latest.json for MSI builds, so we
+      # build it ourselves from the .msi + .sig that the signed build produced.
+      - name: Generate latest.json
+        shell: pwsh
+        run: |
+          $bundleDir = "src-tauri/target/release/bundle/msi"
+          $msi = Get-ChildItem $bundleDir -Filter *.msi | Select-Object -First 1
+          if (-not $msi) { throw "No .msi found in $bundleDir" }
+          $sigPath = "$($msi.FullName).sig"
+          if (-not (Test-Path $sigPath)) { throw "No signature file at $sigPath" }
+          $sig = (Get-Content $sigPath -Raw).Trim()
+          # GitHub sanitizes asset names: anything outside [A-Za-z0-9._-] becomes "."
+          $assetName = ($msi.Name -replace "[^A-Za-z0-9._-]", ".")
+          $tag = "${{ github.ref_name }}"
+          $url = "https://github.com/${{ github.repository }}/releases/download/$tag/$assetName"
+          $obj = [ordered]@{
+            version   = $tag.TrimStart("v")
+            notes     = "Update to $tag"
+            pub_date  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = $sig
+                url       = $url
+              }
+            }
+          }
+          $json = $obj | ConvertTo-Json -Depth 5
+          Set-Content -Path "$bundleDir/latest.json" -Value $json -Encoding utf8
+          Write-Host "Generated latest.json:"
+          Write-Host $json
+
+      - name: Upload latest.json to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: src-tauri/target/release/bundle/msi/latest.json
