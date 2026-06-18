@@ -31,14 +31,19 @@ function fmt(isoDate) {
   });
 }
 
-function ProjectCard({ project, onDeliver, onReturn }) {
+function ProjectCard({ project, onDeliver, onReturn, onDelete }) {
   const profit = project.sale_price_cents !== null
     ? project.sale_price_cents - project.material_cost_cents
     : null;
 
   return (
     <div className="board-card">
-      <div className="board-card-title">{project.title}</div>
+      <div className="board-card-top-row">
+        <div className="board-card-title">{project.title}</div>
+        {onDelete && (
+          <button className="board-card-x" onClick={() => onDelete(project.id)} title="Delete project">✕</button>
+        )}
+      </div>
 
       {project.client_name && (
         <div className="board-card-client">{project.client_name}</div>
@@ -135,6 +140,13 @@ export default function Board() {
     await load();
   }
 
+  async function handleDelete(id) {
+    if (!window.confirm("Delete this project and all its time logs? This cannot be undone.")) return;
+    await execute(`DELETE FROM time_logs WHERE project_id = ?`, [id]);
+    await execute(`DELETE FROM projects WHERE id = ?`, [id]);
+    await load();
+  }
+
   const grouped = Object.fromEntries(COLS.map(c => [c.id, []]));
   const history = [];
   for (const p of projects) {
@@ -167,6 +179,7 @@ export default function Board() {
                     project={p}
                     onDeliver={col.id === "shipped" ? handleDeliver : null}
                     onReturn={col.id === "shipped" ? handleReturn : null}
+                    onDelete={handleDelete}
                   />
                 ))
               )}

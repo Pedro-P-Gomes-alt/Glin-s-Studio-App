@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { query, execute } from "../db";
 import { today, toIso } from "../utils/dates";
-import { eurosToCents } from "../utils/money";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTH_NAMES = [
@@ -23,7 +22,6 @@ function buildWeeks(year, month) {
   return weeks;
 }
 
-// Lane assignment for non-vacation events only
 function buildLanes(weekDays, items) {
   const validDays = weekDays.filter(Boolean);
   if (!validDays.length) return [];
@@ -55,7 +53,6 @@ function buildLanes(weekDays, items) {
 
 function DayCell({ date, isToday, isVacation, hoursLogged, deadlines, onClick }) {
   if (!date) return <div className="cal-day-cell cal-day-empty" />;
-
   return (
     <div
       className={[
@@ -63,21 +60,18 @@ function DayCell({ date, isToday, isVacation, hoursLogged, deadlines, onClick })
         isToday ? "is-today" : "",
         isVacation ? "is-vacation" : "",
       ].join(" ")}
-      onClick={() => !isVacation && onClick(date)}
+      onClick={() => onClick(date)}
     >
       <div className="cal-day-top">
         <span className="cal-day-num">{parseInt(date.slice(8))}</span>
         {isVacation && <span className="cal-off-badge">off</span>}
       </div>
-
       <div className="cal-day-body">
-        {/* Deadlines always visible, even on vacation */}
         {deadlines.map(d => (
           <div key={d.id} className="cal-deadline-pill" title={d.title}>
             ⚑ {d.title}
           </div>
         ))}
-        {/* Time logs only on work days */}
         {!isVacation && hoursLogged > 0 && (
           <div className="cal-hours-dot">
             {hoursLogged % 1 === 0 ? hoursLogged : hoursLogged.toFixed(1)}h
@@ -112,10 +106,8 @@ function EventBar({ item, cStart, cEnd, startsHere, endsHere, kind, onDelete }) 
 function WeekRow({ weekDays, vacationEvents, nonVacationEvents, logsByDate, deadlinesByDate, todayStr, onDayClick, onDeleteEvent }) {
   const vacLanes = buildLanes(weekDays, vacationEvents);
   const evtLanes = buildLanes(weekDays, nonVacationEvents);
-
   return (
     <div className="cal-week">
-      {/* Vacation bars above day cells — label + delete */}
       {vacLanes.map((lane, li) => (
         <div key={`vac-${li}`} className="cal-lane">
           {lane.map(({ item, cStart, cEnd, startsHere, endsHere }) => (
@@ -125,8 +117,6 @@ function WeekRow({ weekDays, vacationEvents, nonVacationEvents, logsByDate, dead
           ))}
         </div>
       ))}
-
-      {/* Day cells */}
       <div className="cal-days-row">
         {weekDays.map((date, i) => {
           const isVacation = date ? vacationEvents.some(v => v.start <= date && v.end >= date) : false;
@@ -143,8 +133,6 @@ function WeekRow({ weekDays, vacationEvents, nonVacationEvents, logsByDate, dead
           );
         })}
       </div>
-
-      {/* Non-vacation event bars below day cells */}
       {evtLanes.map((lane, li) => (
         <div key={`evt-${li}`} className="cal-lane">
           {lane.map(({ item, cStart, cEnd, startsHere, endsHere }) => (
@@ -158,101 +146,47 @@ function WeekRow({ weekDays, vacationEvents, nonVacationEvents, logsByDate, dead
   );
 }
 
-// ── New Project panel ──────────────────────────────────────────────────
-function NewProjectPanel({ categories, clients, defaultDate, onSave, onClose }) {
-  const [form, setForm] = useState({
-    clientId: "", newClient: false, newClientName: "", newClientContact: "",
-    title: "", category: "cosplay", subtype: "",
-    start: defaultDate, end: defaultDate, materialCost: "",
+// ── Day view panel ─────────────────────────────────────────────────────
+function DayPanel({ date, logs, onClose }) {
+  const total = logs.reduce((s, l) => s + l.hours, 0);
+  const label = new Date(date + "T00:00:00").toLocaleDateString("en-GB", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
-  const subtypes = categories.filter(c => c.category === form.category).map(c => c.subtype);
-  useEffect(() => {
-    const first = categories.find(c => c.category === form.category);
-    setForm(f => ({ ...f, subtype: first?.subtype ?? "" }));
-  }, [form.category, categories]);
-  function set(k) { return e => setForm(f => ({ ...f, [k]: e.target.value })); }
-  async function handleSubmit(e) {
-    e.preventDefault();
-    let clientId = form.clientId ? Number(form.clientId) : null;
-    if (form.newClient && form.newClientName.trim()) {
-      const r = await execute(`INSERT INTO clients (name, contact_handle) VALUES (?, ?)`,
-        [form.newClientName.trim(), form.newClientContact.trim() || null]);
-      clientId = r.lastInsertId;
-    }
-    const cat = categories.find(c => c.category === form.category && c.subtype === form.subtype);
-    if (!cat) return;
-    await execute(
-      `INSERT INTO projects (client_id, category_id, title, planned_start, planned_end, material_cost_cents) VALUES (?, ?, ?, ?, ?, ?)`,
-      [clientId, cat.id, form.title.trim(), form.start || null, form.end || null, eurosToCents(form.materialCost)]
-    );
-    onSave();
-  }
   return (
     <div className="overlay" onClick={onClose}>
       <div className="panel" onClick={e => e.stopPropagation()}>
         <div className="panel-header">
-          <h2>New Project</h2>
-          <button className="btn-icon" onClick={onClose}>✕</button>
-        </div>
-        <form className="sale-form" onSubmit={handleSubmit}>
-          <div className="field">
-            <label>Client</label>
-            {!form.newClient ? (
-              <div className="inline-row">
-                <select value={form.clientId} onChange={set("clientId")}>
-                  <option value="">No client</option>
-                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-                <button type="button" className="btn-ghost sm" onClick={() => setForm(f => ({ ...f, newClient: true }))}>+ New</button>
-              </div>
-            ) : (
-              <div className="new-client-block">
-                <input placeholder="Name *" value={form.newClientName} onChange={set("newClientName")} required autoFocus />
-                <input placeholder="Contact / handle" value={form.newClientContact} onChange={set("newClientContact")} />
-                <button type="button" className="btn-ghost sm" onClick={() => setForm(f => ({ ...f, newClient: false }))}>← Pick existing</button>
-              </div>
+          <div>
+            <h2>{label}</h2>
+            {total > 0 && (
+              <p className="panel-subtitle">
+                {total % 1 === 0 ? total : total.toFixed(2)}h logged
+              </p>
             )}
           </div>
-          <div className="field">
-            <label>Title *</label>
-            <input value={form.title} onChange={set("title")} placeholder="e.g. Zero Two dress for AnimeConf" required />
-          </div>
-          <div className="field">
-            <label>Category</label>
-            <div className="tab-toggle">
-              {["cosplay", "sports"].map(cat => (
-                <button key={cat} type="button" className={form.category === cat ? "active" : ""}
-                  onClick={() => setForm(f => ({ ...f, category: cat }))}>
-                  {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                </button>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <div className="day-panel-body">
+          {logs.length === 0 ? (
+            <p className="empty-state">Nothing logged for this day.</p>
+          ) : (
+            <div className="log-list">
+              {logs.map(log => (
+                <div key={log.id} className="log-entry">
+                  <div className="log-hours">
+                    {log.hours % 1 === 0 ? log.hours : log.hours.toFixed(2)}h
+                  </div>
+                  <div className="log-body">
+                    {log.description && <p className="log-desc">{log.description}</p>}
+                    {log.project_title && (
+                      <span className="log-project">{log.project_title}</span>
+                    )}
+                  </div>
+                </div>
               ))}
             </div>
-          </div>
-          <div className="field">
-            <label>Subtype</label>
-            <select value={form.subtype} onChange={set("subtype")}>
-              {subtypes.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          <div className="field-pair">
-            <div className="field">
-              <label>Start date *</label>
-              <input type="date" value={form.start} onChange={set("start")} required />
-            </div>
-            <div className="field">
-              <label>Deadline</label>
-              <input type="date" value={form.end} onChange={set("end")} />
-            </div>
-          </div>
-          <div className="field">
-            <label>Material cost estimate (€)</label>
-            <input type="number" min="0" step="0.01" value={form.materialCost} onChange={set("materialCost")} placeholder="0.00" />
-          </div>
-          <div className="form-actions">
-            <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn-primary">Save project</button>
-          </div>
-        </form>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -316,38 +250,44 @@ export default function Calendar() {
   const [nonVacationEvents, setNonVacationEvents] = useState([]);
   const [logsByDate, setLogsByDate] = useState({});
   const [deadlinesByDate, setDeadlinesByDate] = useState({});
-  const [categories, setCategories] = useState([]);
-  const [clients, setClients] = useState([]);
-  const [panel, setPanel] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(today());
+  const [showEventForm, setShowEventForm] = useState(false);
+  const [eventDate, setEventDate] = useState(today());
+  const [dayDate, setDayDate] = useState(null);
+  const [dayLogs, setDayLogs] = useState([]);
   const todayStr = today();
 
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    const [events, logs, projects, cats, cls] = await Promise.all([
+    const [events, logs, projects] = await Promise.all([
       query(`SELECT id, title, event_type, start_date AS start, end_date AS end FROM events ORDER BY start_date`),
       query(`SELECT date, SUM(hours) AS total FROM time_logs GROUP BY date`),
       query(`SELECT id, title, planned_end FROM projects WHERE planned_end IS NOT NULL`),
-      query(`SELECT * FROM categories ORDER BY category, subtype`),
-      query(`SELECT id, name FROM clients ORDER BY name`),
     ]);
-
     setVacationEvents(events.filter(e => e.event_type === "vacation"));
     setNonVacationEvents(events.filter(e => e.event_type !== "vacation"));
-
     const lbd = {};
     for (const l of logs) lbd[l.date] = l.total;
     setLogsByDate(lbd);
-
     const dbd = {};
     for (const p of projects) {
       if (!dbd[p.planned_end]) dbd[p.planned_end] = [];
       dbd[p.planned_end].push(p);
     }
     setDeadlinesByDate(dbd);
-    setCategories(cats);
-    setClients(cls);
+  }
+
+  async function handleDayClick(date) {
+    const logs = await query(
+      `SELECT tl.id, tl.hours, tl.description, p.title AS project_title
+       FROM time_logs tl
+       LEFT JOIN projects p ON tl.project_id = p.id
+       WHERE tl.date = ?
+       ORDER BY tl.id ASC`,
+      [date]
+    );
+    setDayLogs(logs);
+    setDayDate(date);
   }
 
   async function deleteEvent(id) {
@@ -364,10 +304,9 @@ export default function Calendar() {
     <div className="page">
       <div className="page-header">
         <h1>Calendar</h1>
-        <div className="header-actions">
-          <button className="btn-ghost" onClick={() => { setSelectedDate(today()); setPanel("event"); }}>+ Event</button>
-          <button className="btn-primary" onClick={() => { setSelectedDate(today()); setPanel("project"); }}>+ Project</button>
-        </div>
+        <button className="btn-ghost" onClick={() => { setEventDate(todayStr); setShowEventForm(true); }}>
+          + Event
+        </button>
       </div>
 
       <div className="cal-nav">
@@ -389,7 +328,7 @@ export default function Calendar() {
             logsByDate={logsByDate}
             deadlinesByDate={deadlinesByDate}
             todayStr={todayStr}
-            onDayClick={d => { setSelectedDate(d); setPanel("project"); }}
+            onDayClick={handleDayClick}
             onDeleteEvent={deleteEvent}
           />
         ))}
@@ -402,13 +341,16 @@ export default function Calendar() {
         <span className="cal-legend-item"><span className="cal-legend-dot vacation" />Time off</span>
       </div>
 
-      {panel === "project" && (
-        <NewProjectPanel categories={categories} clients={clients} defaultDate={selectedDate}
-          onSave={async () => { setPanel(null); await loadAll(); }} onClose={() => setPanel(null)} />
+      {dayDate && (
+        <DayPanel date={dayDate} logs={dayLogs} onClose={() => setDayDate(null)} />
       )}
-      {panel === "event" && (
-        <NewEventPanel defaultDate={selectedDate}
-          onSave={async () => { setPanel(null); await loadAll(); }} onClose={() => setPanel(null)} />
+
+      {showEventForm && (
+        <NewEventPanel
+          defaultDate={eventDate}
+          onSave={async () => { setShowEventForm(false); await loadAll(); }}
+          onClose={() => setShowEventForm(false)}
+        />
       )}
     </div>
   );
