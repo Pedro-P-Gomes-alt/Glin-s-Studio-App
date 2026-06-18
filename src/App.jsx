@@ -7,7 +7,7 @@ import Board from "./pages/Board";
 
 const NAV = [
   { id: "dashboard",   label: "Dashboard" },
-  { id: "sales",       label: "Sales" },
+  { id: "sales",       label: "Commissions" },
   { id: "timekeeping", label: "Timekeeping" },
   { id: "calendar",    label: "Calendar" },
   { id: "board",       label: "Board" },

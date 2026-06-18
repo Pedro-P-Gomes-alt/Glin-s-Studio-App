@@ -164,9 +164,9 @@ export default function Sales() {
         LEFT JOIN clients c ON p.client_id = c.id
         LEFT JOIN categories cat ON p.category_id = cat.id
         LEFT JOIN time_logs tl ON tl.project_id = p.id
-        WHERE p.sale_price_cents IS NOT NULL
+        WHERE p.sale_price_cents IS NOT NULL AND p.shipped = 0 AND p.delivered = 0
         GROUP BY p.id
-        ORDER BY p.shipped ASC, p.created_at DESC
+        ORDER BY p.created_at DESC
       `),
       query(`SELECT * FROM categories ORDER BY category, subtype`),
       query(`SELECT id, name FROM clients ORDER BY name`),
@@ -232,87 +232,45 @@ export default function Sales() {
     }
   }
 
-  const unshipped = sales.filter(s => !s.shipped);
-  const shipped   = sales.filter(s => s.shipped);
-
   return (
     <div className="page">
       <div className="page-header">
-        <h1>Sales</h1>
-        <button className="btn-primary" onClick={openForm}>+ New Sale</button>
+        <h1>Commissions</h1>
+        <button className="btn-primary" onClick={openForm}>+ New Order</button>
       </div>
 
-      {/* ── Pending shipment ── */}
-      {unshipped.length > 0 && (
-        <section className="sales-section">
-          <h2 className="sales-section-title">Pending Shipment</h2>
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Title</th><th>Client</th><th>Type</th>
-                  <th>Material</th><th>Sale price</th><th>Hours</th><th></th>
+      {sales.length > 0 && (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Title</th><th>Client</th><th>Type</th>
+                <th>Material</th><th>Sale price</th><th>Hours</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sales.map(s => (
+                <tr key={s.id}>
+                  <td>{s.title}</td>
+                  <td>{s.client_name ?? "—"}</td>
+                  <td><span className="badge">{s.category}</span> {s.subtype}</td>
+                  <td>{formatEuro(s.material_cost_cents)}</td>
+                  <td>{formatEuro(s.sale_price_cents)}</td>
+                  <td>{s.total_hours > 0 ? `${s.total_hours}h` : "—"}</td>
+                  <td>
+                    <button className="btn-finalize" onClick={() => setFinalizing(s)}>
+                      Finalize →
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {unshipped.map(s => (
-                  <tr key={s.id}>
-                    <td>{s.title}</td>
-                    <td>{s.client_name ?? "—"}</td>
-                    <td><span className="badge">{s.category}</span> {s.subtype}</td>
-                    <td>{formatEuro(s.material_cost_cents)}</td>
-                    <td>{formatEuro(s.sale_price_cents)}</td>
-                    <td>{s.total_hours > 0 ? `${s.total_hours}h` : "—"}</td>
-                    <td>
-                      <button className="btn-finalize" onClick={() => setFinalizing(s)}>
-                        Finalize →
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      {/* ── Shipped ── */}
-      {shipped.length > 0 && (
-        <section className="sales-section">
-          <h2 className="sales-section-title">Shipped</h2>
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Title</th><th>Client</th><th>Type</th>
-                  <th>Material</th><th>Sale price</th>
-                  <th>Profit</th><th>Margin</th><th>€/hour</th>
-                </tr>
-              </thead>
-              <tbody>
-                {shipped.map(s => {
-                  const profit = s.sale_price_cents - s.material_cost_cents;
-                  return (
-                    <tr key={s.id}>
-                      <td>{s.title}</td>
-                      <td>{s.client_name ?? "—"}</td>
-                      <td><span className="badge">{s.category}</span> {s.subtype}</td>
-                      <td>{formatEuro(s.material_cost_cents)}</td>
-                      <td>{formatEuro(s.sale_price_cents)}</td>
-                      <td className={profit >= 0 ? "positive" : "negative"}>{formatEuro(profit)}</td>
-                      <td>{formatMargin(profit, s.sale_price_cents)}</td>
-                      <td>{formatEuroPerHour(profit, s.total_hours)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {sales.length === 0 && (
-        <p className="empty-state">No sales recorded yet. Click <strong>+ New Sale</strong> to add your first.</p>
+        <p className="empty-state">No active orders. Click <strong>+ New Order</strong> to add one.</p>
       )}
 
       {/* ── New Sale panel ── */}
