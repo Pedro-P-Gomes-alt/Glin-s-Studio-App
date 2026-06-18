@@ -11,6 +11,9 @@
     "sql:allow-select",
     "sql:allow-load",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "fs:allow-appdata-read-recursive",
+    "fs:allow-appdata-write-recursive",
+    "fs:allow-appdata-meta-recursive"
   ]
 }

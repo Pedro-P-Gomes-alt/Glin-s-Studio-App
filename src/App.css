@@ -2557,3 +2557,547 @@ body {
   padding: 8px 12px;
   font-style: italic;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   v0.1.2 — Update actions, Projects/subtasks, Workspace, Reminders
+   ═══════════════════════════════════════════════════════════ */
+
+/* Commissions row actions (Details + Update) */
+.row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+/* Wider drawer for the workspace */
+.panel.panel-wide { width: 640px; }
+
+/* ── Projects tab ─────────────────────────────────────────── */
+.project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.project-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.project-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+}
+.project-card-head:hover { background: var(--bg); }
+
+.project-expand {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--muted);
+  width: 18px;
+  flex-shrink: 0;
+}
+
+.project-card-main { flex: 1; min-width: 0; }
+
+.project-card-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-bottom: 4px;
+}
+
+.project-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.project-card-stats {
+  display: flex;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.project-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.project-card.is-closed { opacity: 0.72; }
+.project-card.is-closed .project-card-title { text-decoration: line-through; }
+
+.badge--done {
+  background: var(--positive);
+  color: #fff;
+}
+
+.project-closed-section { margin-top: 28px; }
+.project-closed-title {
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.project-stat {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* Subtasks */
+.subtask-block {
+  border-top: 1px solid var(--border);
+  padding: 12px 16px 14px;
+  background: var(--bg);
+}
+
+.subtask-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.subtask-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.subtask-row.is-done .subtask-title {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.subtask-check {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--brand);
+  flex-shrink: 0;
+}
+
+.subtask-title { flex: 1; min-width: 0; font-size: 0.875rem; }
+
+.subtask-stat {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 600;
+  min-width: 48px;
+  text-align: right;
+}
+
+.subtask-empty {
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-style: italic;
+  margin-bottom: 10px;
+}
+
+.subtask-add {
+  display: flex;
+  gap: 8px;
+}
+.subtask-add input { flex: 1; }
+.subtask-add .subtask-cost { flex: 0 0 110px; }
+
+/* ── Workspace (Details) ──────────────────────────────────── */
+.ws-body {
+  padding: 20px 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.ws-section-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+/* Measurements */
+.ws-measure-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.ws-measure-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ws-measure-label {
+  flex: 0 0 120px;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.ws-measure-input { flex: 1; }
+
+.ws-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.ws-chip {
+  background: var(--pink-light);
+  border: 1px solid var(--pink-border);
+  color: var(--brand-dark);
+  border-radius: 20px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ws-chip:hover { background: var(--pink); }
+
+.ws-measure-add {
+  display: flex;
+  gap: 8px;
+}
+.ws-measure-add input:first-of-type { flex: 0 0 140px; }
+.ws-measure-add input:last-of-type { flex: 1; }
+
+/* Reference pictures */
+.ws-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ws-thumb {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.ws-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ws-thumb-loading { width: 100%; height: 100%; background: var(--border); }
+
+.ws-thumb-del {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ws-thumb-del:hover { background: var(--negative); }
+
+.ws-upload {
+  width: 96px;
+  height: 96px;
+  border-radius: 8px;
+  border: 1.5px dashed var(--pink-border);
+  background: var(--pink-light);
+  color: var(--brand);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ws-upload:hover { background: var(--pink); }
+
+/* Annotations */
+.ws-notes {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.ws-notes-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 10px;
+}
+.ws-saved { font-size: 0.82rem; color: var(--positive); font-weight: 700; }
+
+/* Read-only (view) variants */
+.ws-measure-readonly {
+  flex: 1;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.ws-notes-readonly {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+/* Clickable commission rows */
+.data-table tr.row-clickable { cursor: pointer; }
+.data-table tr.row-clickable:hover td { background: var(--pink-light); }
+
+/* Lightbox — enlarged reference picture */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0,0,0,0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  cursor: zoom-out;
+}
+.lightbox img {
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+}
+.lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+}
+.lightbox-close:hover { background: rgba(255,255,255,0.3); }
+
+/* ── Dashboard History tab ────────────────────────────────── */
+.dash-metric-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.dash-metric-btn {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.dash-metric-btn:hover { background: var(--bg); }
+.dash-metric-btn.active { background: var(--surface); }
+
+.dash-month-chart {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  height: 180px;
+  padding-bottom: 32px;
+  position: relative;
+}
+
+.dash-month-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  min-width: 0;
+}
+
+.dash-month-val {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--text);
+  height: 14px;
+  white-space: nowrap;
+}
+
+.dash-month-track {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.dash-month-fill {
+  width: 100%;
+  background: var(--pink-rich);
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+  transition: height 0.4s ease;
+}
+
+.dash-month-lbl {
+  font-size: 0.62rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 100%;
+  text-align: center;
+}
+
+/* ── By Category — rounded cards ──────────────────────────── */
+.dash-cat-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.dash-round-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.dash-round-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.dash-round-count {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.dash-round-value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--positive);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.dash-round-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.dash-round-foot {
+  display: flex;
+  gap: 24px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.dash-round-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dash-round-stat-val {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: var(--black);
+}
+
+.dash-round-stat-lbl {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+/* Keep grouped money values (e.g. €208 595.00) on one line */
+.stat-value,
+.month-wage-value,
+.dash-round-value,
+.dash-round-stat-val { white-space: nowrap; }
+
+/* ── Calendar reminders ───────────────────────────────────── */
+.cal-reminder-pill {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: #6B5BD2;
+  color: #fff;
+  border-radius: 4px;
+  padding: 1px 4px 1px 2px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  width: fit-content;
+  max-width: 100%;
+}
+.cal-reminder-pill.is-done {
+  background: var(--muted);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.cal-reminder-check,
+.cal-reminder-del {
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+
+.cal-reminder-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cal-legend-dot.reminder { background: #6B5BD2; }

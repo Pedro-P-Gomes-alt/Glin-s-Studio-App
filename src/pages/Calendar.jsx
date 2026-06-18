@@ -51,7 +51,8 @@ function buildLanes(weekDays, items) {
   return lanes;
 }
 
-function DayCell({ date, isToday, isVacation, hoursLogged, deadlines, onClick }) {
+function DayCell({ date, isToday, isVacation, hoursLogged, deadlines, reminders,
+                  onClick, onToggleReminder, onDeleteReminder }) {
   if (!date) return <div className="cal-day-cell cal-day-empty" />;
   return (
     <div
@@ -70,6 +71,19 @@ function DayCell({ date, isToday, isVacation, hoursLogged, deadlines, onClick })
         {deadlines.map(d => (
           <div key={d.id} className="cal-deadline-pill" title={d.title}>
             ⚑ {d.title}
+          </div>
+        ))}
+        {reminders.map(r => (
+          <div key={r.id} className={`cal-reminder-pill${r.done ? " is-done" : ""}`} title={r.title}>
+            <button className="cal-reminder-check"
+              onClick={e => { e.stopPropagation(); onToggleReminder(r); }}
+              title={r.done ? "Mark not done" : "Mark done"}>
+              {r.done ? "☑" : "☐"}
+            </button>
+            <span className="cal-reminder-text">{r.title}</span>
+            <button className="cal-reminder-del"
+              onClick={e => { e.stopPropagation(); onDeleteReminder(r.id); }}
+              title="Delete">✕</button>
           </div>
         ))}
         {!isVacation && hoursLogged > 0 && (
@@ -103,7 +117,8 @@ function EventBar({ item, cStart, cEnd, startsHere, endsHere, kind, onDelete }) 
   );
 }
 
-function WeekRow({ weekDays, vacationEvents, nonVacationEvents, logsByDate, deadlinesByDate, todayStr, onDayClick, onDeleteEvent }) {
+function WeekRow({ weekDays, vacationEvents, nonVacationEvents, logsByDate, deadlinesByDate,
+                  remindersByDate, todayStr, onDayClick, onDeleteEvent, onToggleReminder, onDeleteReminder }) {
   const vacLanes = buildLanes(weekDays, vacationEvents);
   const evtLanes = buildLanes(weekDays, nonVacationEvents);
   return (
@@ -128,7 +143,10 @@ function WeekRow({ weekDays, vacationEvents, nonVacationEvents, logsByDate, dead
               isVacation={isVacation}
               hoursLogged={date ? (logsByDate[date] ?? 0) : 0}
               deadlines={date ? (deadlinesByDate[date] ?? []) : []}
+              reminders={date ? (remindersByDate[date] ?? []) : []}
               onClick={onDayClick}
+              onToggleReminder={onToggleReminder}
+              onDeleteReminder={onDeleteReminder}
             />
           );
         })}
@@ -241,6 +259,43 @@ function NewEventPanel({ defaultDate, onSave, onClose }) {
   );
 }
 
+// ── New Reminder panel ─────────────────────────────────────────────────
+function NewReminderPanel({ defaultDate, onSave, onClose }) {
+  const [title, setTitle] = useState("");
+  const [date, setDate] = useState(defaultDate);
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!title.trim()) return;
+    await execute(`INSERT INTO reminders (title, remind_on) VALUES (?, ?)`, [title.trim(), date]);
+    onSave();
+  }
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="panel" onClick={e => e.stopPropagation()}>
+        <div className="panel-header">
+          <h2>New Reminder</h2>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <form className="sale-form" onSubmit={handleSubmit}>
+          <div className="field">
+            <label>Reminder *</label>
+            <input value={title} onChange={e => setTitle(e.target.value)}
+              placeholder="e.g. Upload the EuroConf vlog" required autoFocus />
+          </div>
+          <div className="field">
+            <label>Date *</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} required />
+          </div>
+          <div className="form-actions">
+            <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-primary">Save reminder</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Main ───────────────────────────────────────────────────────────────
 export default function Calendar() {
   const now = new Date();
@@ -250,7 +305,9 @@ export default function Calendar() {
   const [nonVacationEvents, setNonVacationEvents] = useState([]);
   const [logsByDate, setLogsByDate] = useState({});
   const [deadlinesByDate, setDeadlinesByDate] = useState({});
+  const [remindersByDate, setRemindersByDate] = useState({});
   const [showEventForm, setShowEventForm] = useState(false);
+  const [showReminderForm, setShowReminderForm] = useState(false);
   const [eventDate, setEventDate] = useState(today());
   const [dayDate, setDayDate] = useState(null);
   const [dayLogs, setDayLogs] = useState([]);
@@ -259,10 +316,11 @@ export default function Calendar() {
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    const [events, logs, projects] = await Promise.all([
+    const [events, logs, projects, reminders] = await Promise.all([
       query(`SELECT id, title, event_type, start_date AS start, end_date AS end FROM events ORDER BY start_date`),
       query(`SELECT date, SUM(hours) AS total FROM time_logs GROUP BY date`),
       query(`SELECT id, title, planned_end FROM projects WHERE planned_end IS NOT NULL`),
+      query(`SELECT id, title, remind_on, done FROM reminders ORDER BY id`),
     ]);
     setVacationEvents(events.filter(e => e.event_type === "vacation"));
     setNonVacationEvents(events.filter(e => e.event_type !== "vacation"));
@@ -275,6 +333,19 @@ export default function Calendar() {
       dbd[p.planned_end].push(p);
     }
     setDeadlinesByDate(dbd);
+    const rbd = {};
+    for (const r of reminders) (rbd[r.remind_on] ||= []).push(r);
+    setRemindersByDate(rbd);
+  }
+
+  async function toggleReminder(r) {
+    await execute(`UPDATE reminders SET done = ? WHERE id = ?`, [r.done ? 0 : 1, r.id]);
+    await loadAll();
+  }
+
+  async function deleteReminder(id) {
+    await execute(`DELETE FROM reminders WHERE id = ?`, [id]);
+    await loadAll();
   }
 
   async function handleDayClick(date) {
@@ -304,9 +375,14 @@ export default function Calendar() {
     <div className="page">
       <div className="page-header">
         <h1>Calendar</h1>
-        <button className="btn-ghost" onClick={() => { setEventDate(todayStr); setShowEventForm(true); }}>
-          + Event
-        </button>
+        <div className="header-actions">
+          <button className="btn-ghost" onClick={() => { setEventDate(todayStr); setShowReminderForm(true); }}>
+            + Reminder
+          </button>
+          <button className="btn-ghost" onClick={() => { setEventDate(todayStr); setShowEventForm(true); }}>
+            + Event
+          </button>
+        </div>
       </div>
 
       <div className="cal-nav">
@@ -327,9 +403,12 @@ export default function Calendar() {
             nonVacationEvents={nonVacationEvents}
             logsByDate={logsByDate}
             deadlinesByDate={deadlinesByDate}
+            remindersByDate={remindersByDate}
             todayStr={todayStr}
             onDayClick={handleDayClick}
             onDeleteEvent={deleteEvent}
+            onToggleReminder={toggleReminder}
+            onDeleteReminder={deleteReminder}
           />
         ))}
       </div>
@@ -338,6 +417,7 @@ export default function Calendar() {
         <span className="cal-legend-item"><span className="cal-legend-dot event" />Event / Convention</span>
         <span className="cal-legend-item"><span className="cal-legend-dot timelog" />Time logged</span>
         <span className="cal-legend-item"><span className="cal-legend-dot deadline" />Project deadline</span>
+        <span className="cal-legend-item"><span className="cal-legend-dot reminder" />Reminder</span>
         <span className="cal-legend-item"><span className="cal-legend-dot vacation" />Time off</span>
       </div>
 
@@ -350,6 +430,14 @@ export default function Calendar() {
           defaultDate={eventDate}
           onSave={async () => { setShowEventForm(false); await loadAll(); }}
           onClose={() => setShowEventForm(false)}
+        />
+      )}
+
+      {showReminderForm && (
+        <NewReminderPanel
+          defaultDate={eventDate}
+          onSave={async () => { setShowReminderForm(false); await loadAll(); }}
+          onClose={() => setShowReminderForm(false)}
         />
       )}
     </div>

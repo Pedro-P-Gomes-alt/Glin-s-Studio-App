@@ -124,6 +124,25 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December",
 ];
 
+// Last n calendar months as 'YYYY-MM', oldest first, ending with the current month.
+function lastMonths(n) {
+  const now = new Date();
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    out.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  return out;
+}
+
+const HISTORY_METRICS = [
+  { key: "revenue", label: "Revenue", money: true,  color: "var(--pink-rich)" },
+  { key: "profit",  label: "Profit",  money: true,  color: "var(--positive)" },
+  { key: "cash",    label: "Cash in", money: true,  color: "#6B5BD2" },
+  { key: "hours",   label: "Hours",   money: false, color: "var(--black)", suffix: "h" },
+  { key: "shipped", label: "Shipped", money: false, color: "#0288D1" },
+];
+
 function trendArrow(current, avg) {
   if (!avg || avg === 0) return null;
   const pctDiff = ((current - avg) / avg) * 100;
@@ -147,6 +166,12 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
   const [weeklyHours, setWeeklyHours] = useState([]);
   const [pipeline, setPipeline]       = useState(null);
 
+  // History state
+  const [monthlyShipped, setMonthlyShipped] = useState([]);
+  const [monthlyCash, setMonthlyCash]       = useState([]);
+  const [monthlyHours, setMonthlyHours]     = useState([]);
+  const [historyMetric, setHistoryMetric]   = useState("revenue");
+
   // Personal state
   const [personalThisMonth, setPersonalThisMonth] = useState([]);
   const [personalTrend, setPersonalTrend]           = useState([]);
@@ -159,7 +184,8 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    const [mw, mavg, mh, ov, cats, subs, cls, split, wh, pip, pmth, ptrend, ytq, igq, ttq] =
+    const [mw, mavg, mh, ov, cats, subs, cls, split, wh, pip, pmth, ptrend, ytq, igq, ttq,
+           msh, mca, mho] =
       await Promise.all([
         // Cash received via payments this month (by received_on date)
         query(`
@@ -297,6 +323,33 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
                WHERE platform='tiktok' AND metric='followers'
                  AND recorded_on >= date('now', '-30 days')
                ORDER BY recorded_on`),
+        // History: shipped commissions per month (by shipped date) — last 12 months
+        query(`
+          SELECT strftime('%Y-%m', shipped_at) AS month,
+                 COUNT(*) AS count,
+                 COALESCE(SUM(sale_price_cents), 0) AS revenue,
+                 COALESCE(SUM(sale_price_cents - material_cost_cents), 0) AS profit
+          FROM projects
+          WHERE shipped = 1 AND project_type = 'commission' AND shipped_at IS NOT NULL
+            AND shipped_at >= date('now', '-12 months', 'start of month')
+          GROUP BY month
+        `),
+        // History: cash received per month
+        query(`
+          SELECT strftime('%Y-%m', received_on) AS month,
+                 COALESCE(SUM(amount_cents), 0) AS cash
+          FROM payments
+          WHERE received_on >= date('now', '-12 months', 'start of month')
+          GROUP BY month
+        `),
+        // History: hours logged per month
+        query(`
+          SELECT strftime('%Y-%m', date) AS month,
+                 COALESCE(SUM(hours), 0) AS hours
+          FROM time_logs
+          WHERE date >= date('now', '-12 months', 'start of month')
+          GROUP BY month
+        `),
       ]);
 
     setMonthCash(mw[0] ?? null);
@@ -314,6 +367,9 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
     setYtSnaps(ytq);
     setIgSnaps(igq);
     setTtSnaps(ttq);
+    setMonthlyShipped(msh);
+    setMonthlyCash(mca);
+    setMonthlyHours(mho);
   }
 
   const noShipped = !overview || overview.total === 0;
@@ -354,6 +410,29 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
   }
   const activeTrendCats = Object.keys(trendByCat).sort();
 
+  // History: merge monthly aggregates onto a fixed 12-month axis
+  const histMonths = lastMonths(12);
+  const histMaps = { revenue: {}, profit: {}, cash: {}, hours: {}, shipped: {} };
+  for (const r of monthlyShipped) {
+    histMaps.revenue[r.month] = r.revenue;
+    histMaps.profit[r.month]  = r.profit;
+    histMaps.shipped[r.month] = r.count;
+  }
+  for (const r of monthlyCash)  histMaps.cash[r.month]  = r.cash;
+  for (const r of monthlyHours) histMaps.hours[r.month] = r.hours;
+
+  const histMetric    = HISTORY_METRICS.find(m => m.key === historyMetric);
+  const histValues    = histMonths.map(m => histMaps[historyMetric][m] ?? 0);
+  const histMax       = Math.max(...histValues, 1);
+  const histHasData   = histValues.some(v => v > 0)
+                        || Object.values(histMaps).some(map => Object.keys(map).length > 0);
+
+  function fmtMetric(key, v) {
+    const m = HISTORY_METRICS.find(x => x.key === key);
+    if (m.money) return formatEuro(v);
+    return `${v}${m.suffix ?? ""}`;
+  }
+
   return (
     <div className="page">
       <div className="page-header">
@@ -362,6 +441,9 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
           <button
             className={`dash-tab${activeTab === "overview" ? " active" : ""}`}
             onClick={() => setActiveTab("overview")}>Overview</button>
+          <button
+            className={`dash-tab${activeTab === "history" ? " active" : ""}`}
+            onClick={() => setActiveTab("history")}>History</button>
           <button
             className={`dash-tab${activeTab === "personal" ? " active" : ""}`}
             onClick={() => setActiveTab("personal")}>Personal</button>
@@ -445,27 +527,27 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
           {noShipped
             ? <Empty msg="Ship commissions to see category data." />
             : (
-              <div className="dash-cat-list">
+              <div className="dash-cat-cards">
                 {byCategory.map(cat => (
-                  <div key={cat.category} className="dash-cat-row">
-                    <div className="dash-cat-head">
+                  <div key={cat.category} className="dash-round-card">
+                    <div className="dash-round-head">
                       <span className="badge">{cat.category}</span>
-                      <span className="dash-cat-count">{cat.count} job{cat.count !== 1 ? "s" : ""}</span>
-                      <span className="dash-cat-stats">
-                        {formatEuro(cat.revenue)} revenue · {formatEuro(cat.profit)} profit
-                        {cat.hours > 0 && ` · ${formatEuroPerHour(cat.profit, cat.hours)}/h`}
-                      </span>
+                      <span className="dash-round-count">{cat.count} job{cat.count !== 1 ? "s" : ""}</span>
                     </div>
-                    <div className="dash-cat-bars">
-                      <div className="dash-cat-bar-row">
-                        <span className="dash-bar-lbl">Revenue</span>
-                        <HBar value={cat.revenue} max={maxCatRevenue} />
-                        <span className="dash-bar-rval">{formatEuro(cat.revenue)}</span>
+                    <div className="dash-round-value">{formatEuro(cat.profit)}</div>
+                    <div className="dash-round-label">
+                      profit · {formatMargin(cat.profit, cat.revenue)} margin
+                    </div>
+                    <div className="dash-round-foot">
+                      <div className="dash-round-stat">
+                        <span className="dash-round-stat-val">{formatEuro(cat.revenue)}</span>
+                        <span className="dash-round-stat-lbl">revenue</span>
                       </div>
-                      <div className="dash-cat-bar-row">
-                        <span className="dash-bar-lbl">Profit</span>
-                        <HBar value={cat.profit} max={maxCatRevenue} color="var(--positive)" />
-                        <span className="dash-bar-rval">{formatEuro(cat.profit)}</span>
+                      <div className="dash-round-stat">
+                        <span className="dash-round-stat-val">
+                          {cat.hours > 0 ? formatEuroPerHour(cat.profit, cat.hours) : "—"}
+                        </span>
+                        <span className="dash-round-stat-lbl">€/hour</span>
                       </div>
                     </div>
                   </div>
@@ -587,6 +669,67 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
             }
           </DashSection>
         </div>
+      </>}
+
+      {/* ──────────────── HISTORY TAB ──────────────── */}
+      {activeTab === "history" && <>
+        {!histHasData ? (
+          <Empty msg="No history yet. Ship commissions, record payments and log time to build month-by-month trends." />
+        ) : (
+          <>
+            <DashSection title="Monthly Trend" hint="Last 12 months · click a metric to switch">
+              <div className="dash-metric-toggle">
+                {HISTORY_METRICS.map(m => (
+                  <button key={m.key}
+                    className={`dash-metric-btn${historyMetric === m.key ? " active" : ""}`}
+                    style={historyMetric === m.key ? { borderColor: m.color, color: m.color } : undefined}
+                    onClick={() => setHistoryMetric(m.key)}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <div className="dash-month-chart">
+                {histMonths.map((m, i) => (
+                  <div key={m} className="dash-month-col">
+                    <span className="dash-month-val">{histValues[i] > 0 ? fmtMetric(historyMetric, histValues[i]) : ""}</span>
+                    <div className="dash-month-track">
+                      <div className="dash-month-fill"
+                        style={{ height: `${pct(histValues[i], histMax)}%`, background: histMetric.color }} />
+                    </div>
+                    <span className="dash-month-lbl">{fmtMonth(m)}</span>
+                  </div>
+                ))}
+              </div>
+            </DashSection>
+
+            <DashSection title="Month by Month" hint="Newest first">
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Month</th><th>Shipped</th><th>Revenue</th>
+                      <th>Profit</th><th>Cash in</th><th>Hours</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...histMonths].reverse().map(m => (
+                      <tr key={m}>
+                        <td>{fmtMonth(m)}</td>
+                        <td>{histMaps.shipped[m] ?? 0}</td>
+                        <td>{formatEuro(histMaps.revenue[m] ?? 0)}</td>
+                        <td className={(histMaps.profit[m] ?? 0) >= 0 ? "positive" : "negative"}>
+                          {formatEuro(histMaps.profit[m] ?? 0)}
+                        </td>
+                        <td>{formatEuro(histMaps.cash[m] ?? 0)}</td>
+                        <td>{(histMaps.hours[m] ?? 0) > 0 ? `${histMaps.hours[m]}h` : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </DashSection>
+          </>
+        )}
       </>}
 
       {/* ──────────────── PERSONAL TAB ──────────────── */}

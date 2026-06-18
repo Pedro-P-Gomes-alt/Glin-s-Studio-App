@@ -4,6 +4,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import "./App.css";
 import Dashboard from "./pages/Dashboard";
 import Sales from "./pages/Sales";
+import Projects from "./pages/Projects";
 import Timekeeping from "./pages/Timekeeping";
 import Calendar from "./pages/Calendar";
 import Board from "./pages/Board";
@@ -491,6 +492,7 @@ export default function App() {
   const NAV = [
     { id: "dashboard",   label: "Dashboard" },
     { id: "sales",       label: "Commissions" },
+    { id: "projects",    label: "Projects" },
     { id: "timekeeping", label: "Timekeeping" },
     { id: "calendar",    label: "Calendar" },
     { id: "board",       label: "Board" },
@@ -521,6 +523,7 @@ export default function App() {
       <main className="content">
         {page === "dashboard"   && <Dashboard socialConfig={socialConfig} socialErrors={socialErrors} onRefreshSocial={forceFetchSocial} />}
         {page === "sales"       && <Sales />}
+        {page === "projects"    && <Projects />}
         {page === "timekeeping" && <Timekeeping />}
         {page === "calendar"    && <Calendar />}
         {page === "board"       && <Board />}

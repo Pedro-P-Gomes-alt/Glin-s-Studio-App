@@ -51,12 +51,31 @@ pub fn run() {
             sql: include_str!("../migrations/008_categories_sort_order.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 9,
+            description: "subtasks and time_logs.subtask_id",
+            sql: include_str!("../migrations/009_subtasks.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 10,
+            description: "project workspace: details, measurements, images",
+            sql: include_str!("../migrations/010_project_workspace.sql"),
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 11,
+            description: "calendar reminders",
+            sql: include_str!("../migrations/011_reminders.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(
             tauri_plugin_sql::Builder::new()
                 .add_migrations("sqlite:glins_studio.db", migrations)

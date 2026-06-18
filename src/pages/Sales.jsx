@@ -1,13 +1,7 @@
 import { useState, useEffect } from "react";
 import { query, execute } from "../db";
 import { eurosToCents, formatEuro, formatEuroPerHour, formatMargin } from "../utils/money";
-
-const PERSONAL_CATS = [
-  { key: "video",       label: "YouTube / Video" },
-  { key: "short",       label: "Short-form" },
-  { key: "competition", label: "Competition" },
-  { key: "other",       label: "Other" },
-];
+import Workspace from "../components/Workspace";
 
 const PAYMENT_LABELS = {
   advance: "Advance / Signal",
@@ -22,88 +16,6 @@ function resetForm() {
     title: "", category: "cosplay", subtype: "",
     plannedStart: "", plannedEnd: "", materialCost: "", salePrice: "",
   };
-}
-
-// ── Personal Project panel ─────────────────────────────────────────────
-function PersonalProjectPanel({ onSave, onClose }) {
-  const [form, setForm] = useState({
-    title: "", category: "video", start: "", end: "", spend: "",
-  });
-  const [saving, setSaving] = useState(false);
-  function set(k) { return e => setForm(f => ({ ...f, [k]: e.target.value })); }
-
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      await execute(
-        `INSERT INTO projects
-           (title, project_type, personal_category, planned_start, planned_end, material_cost_cents)
-         VALUES (?, 'personal', ?, ?, ?, ?)`,
-        [
-          form.title.trim(),
-          form.category,
-          form.start || null,
-          form.end  || null,
-          eurosToCents(form.spend),
-        ]
-      );
-      onSave();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="overlay" onClick={onClose}>
-      <div className="panel" onClick={e => e.stopPropagation()}>
-        <div className="panel-header">
-          <h2>New Personal Project</h2>
-          <button className="btn-icon" onClick={onClose}>✕</button>
-        </div>
-        <form className="sale-form" onSubmit={handleSubmit}>
-          <div className="field">
-            <label>Title *</label>
-            <input value={form.title} onChange={set("title")}
-              placeholder="e.g. Studio tour video, Nationals prep…" required autoFocus />
-          </div>
-          <div className="field">
-            <label>Type</label>
-            <div className="tab-toggle" style={{ flexWrap: "wrap", gap: 6 }}>
-              {PERSONAL_CATS.map(c => (
-                <button key={c.key} type="button"
-                  className={form.category === c.key ? "active" : ""}
-                  onClick={() => setForm(f => ({ ...f, category: c.key }))}>
-                  {c.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="field-pair">
-            <div className="field">
-              <label>Start</label>
-              <input type="date" value={form.start} onChange={set("start")} />
-            </div>
-            <div className="field">
-              <label>Target date</label>
-              <input type="date" value={form.end} onChange={set("end")} />
-            </div>
-          </div>
-          <div className="field">
-            <label>Spending (€)</label>
-            <input type="number" min="0" step="0.01" value={form.spend}
-              onChange={set("spend")} placeholder="0.00" />
-          </div>
-          <div className="form-actions">
-            <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={saving}>
-              {saving ? "Saving…" : "Create project"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
 }
 
 // ── Record Payment dialog (centered) ────────────────────────────────────
@@ -174,8 +86,13 @@ function PaymentDialog({ commission, onSave, onClose }) {
   );
 }
 
-// ── Finalize Sale panel ────────────────────────────────────────────────
-function FinalizePanel({ sale, onSave, onClose }) {
+// ── Update Order panel ─────────────────────────────────────────────────
+function FinalizePanel({ sale, categories, onSave, onClose }) {
+  const [title, setTitle] = useState(sale.title);
+  const [category, setCategory] = useState(sale.category || "cosplay");
+  const [subtype, setSubtype] = useState(sale.subtype || "");
+  const [plannedStart, setPlannedStart] = useState(sale.planned_start || "");
+  const [plannedEnd, setPlannedEnd]     = useState(sale.planned_end || "");
   const [materialCost, setMaterialCost] = useState(
     sale.material_cost_cents ? (sale.material_cost_cents / 100).toFixed(2) : ""
   );
@@ -190,19 +107,36 @@ function FinalizePanel({ sale, onSave, onClose }) {
       .then(setPayments);
   }, [sale.id]);
 
+  const subtypesForCategory = categories.filter(c => c.category === category).map(c => c.subtype);
+
+  function pickCategory(cat) {
+    setCategory(cat);
+    const first = categories.find(c => c.category === cat);
+    setSubtype(prev =>
+      categories.some(c => c.category === cat && c.subtype === prev) ? prev : (first?.subtype ?? "")
+    );
+  }
+
   const materialCents = eurosToCents(materialCost);
   const saleCents     = eurosToCents(salePrice);
   const profitCents   = saleCents - materialCents;
   const showReadout   = saleCents > 0;
   const totalReceived = payments.reduce((s, p) => s + p.amount_cents, 0);
 
+  function resolveCategoryId() {
+    const cat = categories.find(c => c.category === category && c.subtype === subtype);
+    return cat ? cat.id : sale.category_id;
+  }
+
   async function handleShip(e) {
     e.preventDefault();
     setSaving(true);
     try {
       await execute(
-        `UPDATE projects SET material_cost_cents = ?, sale_price_cents = ?, shipped = 1, shipped_at = date('now') WHERE id = ?`,
-        [materialCents, saleCents, sale.id]
+        `UPDATE projects SET title = ?, category_id = ?, planned_start = ?, planned_end = ?,
+           material_cost_cents = ?, sale_price_cents = ?, shipped = 1, shipped_at = date('now') WHERE id = ?`,
+        [title.trim(), resolveCategoryId(), plannedStart || null, plannedEnd || null,
+         materialCents, saleCents, sale.id]
       );
       onSave();
     } finally {
@@ -215,8 +149,10 @@ function FinalizePanel({ sale, onSave, onClose }) {
     setSaving(true);
     try {
       await execute(
-        `UPDATE projects SET material_cost_cents = ?, sale_price_cents = ? WHERE id = ?`,
-        [materialCents, saleCents, sale.id]
+        `UPDATE projects SET title = ?, category_id = ?, planned_start = ?, planned_end = ?,
+           material_cost_cents = ?, sale_price_cents = ? WHERE id = ?`,
+        [title.trim(), resolveCategoryId(), plannedStart || null, plannedEnd || null,
+         materialCents, saleCents, sale.id]
       );
       onSave();
     } finally {
@@ -229,31 +165,65 @@ function FinalizePanel({ sale, onSave, onClose }) {
       <div className="panel" onClick={e => e.stopPropagation()}>
         <div className="panel-header">
           <div>
-            <h2>Finalize Sale</h2>
+            <h2>Update Order</h2>
             <p className="panel-subtitle">{sale.title}</p>
           </div>
           <button className="btn-icon" onClick={onClose}>✕</button>
         </div>
 
         <form className="sale-form" onSubmit={handleShip}>
-          {sale.total_hours > 0 && (
+          {(sale.total_hours > 0 || sale.client_name) && (
             <div className="finalize-stats">
-              <div className="fstat">
-                <span className="fstat-label">Hours logged</span>
-                <span className="fstat-value">{sale.total_hours}</span>
-              </div>
+              {sale.total_hours > 0 && (
+                <div className="fstat">
+                  <span className="fstat-label">Hours logged</span>
+                  <span className="fstat-value">{sale.total_hours}</span>
+                </div>
+              )}
               {sale.client_name && (
                 <div className="fstat">
                   <span className="fstat-label">Client</span>
                   <span className="fstat-value">{sale.client_name}</span>
                 </div>
               )}
-              <div className="fstat">
-                <span className="fstat-label">Type</span>
-                <span className="fstat-value">{sale.category} / {sale.subtype}</span>
-              </div>
             </div>
           )}
+
+          <div className="field">
+            <label>Title *</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} required />
+          </div>
+
+          <div className="field">
+            <label>Category</label>
+            <div className="tab-toggle">
+              {["cosplay", "sports"].map(cat => (
+                <button key={cat} type="button"
+                  className={category === cat ? "active" : ""}
+                  onClick={() => pickCategory(cat)}>
+                  {cat === "cosplay" ? "Cosplay" : "Sports"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="field">
+            <label>Subtype</label>
+            <select value={subtype} onChange={e => setSubtype(e.target.value)}>
+              {subtypesForCategory.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          <div className="field-pair">
+            <div className="field">
+              <label>Start date</label>
+              <input type="date" value={plannedStart} onChange={e => setPlannedStart(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>Deadline</label>
+              <input type="date" value={plannedEnd} onChange={e => setPlannedEnd(e.target.value)} />
+            </div>
+          </div>
 
           {/* Payment history */}
           {payments.length > 0 && (
@@ -329,9 +299,9 @@ export default function Sales() {
   const [categories, setCategories] = useState([]);
   const [clients, setClients]       = useState([]);
   const [showNewForm, setShowNewForm]         = useState(false);
-  const [showPersonalForm, setShowPersonalForm] = useState(false);
   const [finalizing, setFinalizing] = useState(null);
   const [payDialog, setPayDialog]   = useState(null);
+  const [workspace, setWorkspace]   = useState(null);
   const [form, setForm]             = useState(resetForm());
   const [saving, setSaving]         = useState(false);
 
@@ -341,7 +311,8 @@ export default function Sales() {
     const [s, cats, cls] = await Promise.all([
       query(`
         SELECT p.id, p.title, p.material_cost_cents, p.sale_price_cents,
-               p.created_at, p.shipped,
+               p.created_at, p.shipped, p.category_id,
+               p.planned_start, p.planned_end,
                c.name AS client_name,
                cat.category, cat.subtype,
                COALESCE((SELECT SUM(hours) FROM time_logs WHERE project_id = p.id), 0) AS total_hours,
@@ -424,7 +395,6 @@ export default function Sales() {
       <div className="page-header">
         <h1>Commissions</h1>
         <div className="header-actions">
-          <button className="btn-ghost" onClick={() => setShowPersonalForm(true)}>+ New Project</button>
           <button className="btn-primary" onClick={openForm}>+ New Order</button>
         </div>
       </div>
@@ -443,7 +413,9 @@ export default function Sales() {
                 const outstanding = s.sale_price_cents - s.total_received;
                 const fullyPaid   = outstanding <= 0;
                 return (
-                  <tr key={s.id}>
+                  <tr key={s.id} className="row-clickable"
+                    onClick={() => setWorkspace({ project: s, readOnly: true })}
+                    title="View details">
                     <td>{s.title}</td>
                     <td>{s.client_name ?? "—"}</td>
                     <td><span className="badge">{s.category}</span> {s.subtype}</td>
@@ -463,15 +435,23 @@ export default function Sales() {
                         )}
                         <button
                           className="pay-add-btn"
-                          onClick={() => setPayDialog(s)}
+                          onClick={e => { e.stopPropagation(); setPayDialog(s); }}
                           title="Record payment">+</button>
                       </div>
                     </td>
                     <td>{s.total_hours > 0 ? `${s.total_hours}h` : "—"}</td>
                     <td>
-                      <button className="btn-finalize" onClick={() => setFinalizing(s)}>
-                        Finalize →
-                      </button>
+                      <div className="row-actions">
+                        <button className="btn-ghost sm"
+                          onClick={e => { e.stopPropagation(); setWorkspace({ project: s, readOnly: false }); }}
+                          title="Edit measurements, notes, pictures">
+                          Details
+                        </button>
+                        <button className="btn-finalize"
+                          onClick={e => { e.stopPropagation(); setFinalizing(s); }}>
+                          Update
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -483,14 +463,6 @@ export default function Sales() {
 
       {sales.length === 0 && (
         <p className="empty-state">No active orders. Click <strong>+ New Order</strong> to add one.</p>
-      )}
-
-      {/* Personal project panel */}
-      {showPersonalForm && (
-        <PersonalProjectPanel
-          onSave={async () => { setShowPersonalForm(false); await loadAll(); }}
-          onClose={() => setShowPersonalForm(false)}
-        />
       )}
 
       {/* New commission panel */}
@@ -605,10 +577,11 @@ export default function Sales() {
         </div>
       )}
 
-      {/* Finalize panel */}
+      {/* Update panel */}
       {finalizing && (
         <FinalizePanel
           sale={finalizing}
+          categories={categories}
           onSave={async () => { setFinalizing(null); await loadAll(); }}
           onClose={() => setFinalizing(null)}
         />
@@ -620,6 +593,15 @@ export default function Sales() {
           commission={payDialog}
           onSave={async () => { setPayDialog(null); await loadAll(); }}
           onClose={() => setPayDialog(null)}
+        />
+      )}
+
+      {/* Details / workspace panel */}
+      {workspace && (
+        <Workspace
+          project={workspace.project}
+          readOnly={workspace.readOnly}
+          onClose={() => setWorkspace(null)}
         />
       )}
     </div>

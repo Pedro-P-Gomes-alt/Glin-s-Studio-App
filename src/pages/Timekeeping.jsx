@@ -8,7 +8,8 @@ export default function Timekeeping() {
   const [date, setDate] = useState(today());
   const [logs, setLogs] = useState([]);
   const [projects, setProjects] = useState([]);
-  const [form, setForm] = useState({ hours: "1", description: "", projectId: "" });
+  const [subtasks, setSubtasks] = useState([]);
+  const [form, setForm] = useState({ hours: "1", description: "", projectId: "", subtaskId: "" });
   const [saving, setSaving] = useState(false);
   const descRef = useRef(null);
 
@@ -28,11 +29,18 @@ export default function Timekeeping() {
   }
 
   async function loadProjects() {
-    const rows = await query(
-      `SELECT id, title FROM projects ORDER BY title ASC`
-    );
-    setProjects(rows);
+    const [projs, subs] = await Promise.all([
+      // Only projects still in play (To Do / Doing / Pending) — hide shipped & delivered
+      query(`SELECT id, title FROM projects WHERE shipped = 0 AND delivered = 0 ORDER BY title ASC`),
+      query(`SELECT id, project_id, title FROM subtasks ORDER BY sort_order, id`),
+    ]);
+    setProjects(projs);
+    setSubtasks(subs);
   }
+
+  const subtasksForProject = form.projectId
+    ? subtasks.filter(s => s.project_id === Number(form.projectId))
+    : [];
 
   function prevDay() { setDate(d => addDays(d, -1)); }
   function nextDay() { setDate(d => addDays(d, 1)); }
@@ -46,15 +54,16 @@ export default function Timekeeping() {
     setSaving(true);
     try {
       await execute(
-        `INSERT INTO time_logs (date, hours, description, project_id) VALUES (?, ?, ?, ?)`,
+        `INSERT INTO time_logs (date, hours, description, project_id, subtask_id) VALUES (?, ?, ?, ?, ?)`,
         [
           date,
           parseFloat(form.hours),
           form.description.trim() || null,
           form.projectId ? Number(form.projectId) : null,
+          form.subtaskId ? Number(form.subtaskId) : null,
         ]
       );
-      setForm({ hours: "1", description: "", projectId: "" });
+      setForm({ hours: "1", description: "", projectId: "", subtaskId: "" });
       descRef.current?.focus();
       await loadLogs();
     } finally {
@@ -147,13 +156,26 @@ export default function Timekeeping() {
         <div className="log-form-row">
           <div className="field grow">
             <label>Link to project (optional)</label>
-            <select value={form.projectId} onChange={set("projectId")}>
+            <select value={form.projectId}
+              onChange={e => setForm(p => ({ ...p, projectId: e.target.value, subtaskId: "" }))}>
               <option value="">No project</option>
               {projects.map(p => (
                 <option key={p.id} value={p.id}>{p.title}</option>
               ))}
             </select>
           </div>
+
+          {subtasksForProject.length > 0 && (
+            <div className="field grow">
+              <label>Subtask (optional)</label>
+              <select value={form.subtaskId} onChange={set("subtaskId")}>
+                <option value="">Whole project</option>
+                {subtasksForProject.map(s => (
+                  <option key={s.id} value={s.id}>{s.title}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="field narrow align-end">
             <label>&nbsp;</label>
