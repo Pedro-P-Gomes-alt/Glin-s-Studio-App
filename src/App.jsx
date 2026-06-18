@@ -28,7 +28,10 @@ export default function App() {
   return (
     <div className="layout">
       <nav className="sidebar">
-        <div className="sidebar-brand">Glin's Studio</div>
+        <div className="sidebar-brand">
+          <span className="sidebar-brand-name">glin</span>
+          <span className="sidebar-brand-sub">studio</span>
+        </div>
         <ul>
           {NAV.map((n) => (
             <li key={n.id}>
