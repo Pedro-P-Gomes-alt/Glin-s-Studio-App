@@ -2,6 +2,8 @@ import { useState } from "react";
 import "./App.css";
 import Sales from "./pages/Sales";
 import Timekeeping from "./pages/Timekeeping";
+import Calendar from "./pages/Calendar";
+import Board from "./pages/Board";
 
 const NAV = [
   { id: "dashboard",   label: "Dashboard" },
@@ -50,8 +52,8 @@ export default function App() {
         {page === "dashboard"   && <Placeholder name="Dashboard" />}
         {page === "sales"       && <Sales />}
         {page === "timekeeping" && <Timekeeping />}
-        {page === "calendar"    && <Placeholder name="Calendar" />}
-        {page === "board"       && <Placeholder name="Board" />}
+        {page === "calendar"    && <Calendar />}
+        {page === "board"       && <Board />}
       </main>
     </div>
   );
