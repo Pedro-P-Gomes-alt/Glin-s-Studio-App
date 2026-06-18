@@ -1,6 +1,7 @@
 import { useState } from "react";
 import "./App.css";
 import Sales from "./pages/Sales";
+import Timekeeping from "./pages/Timekeeping";
 
 const NAV = [
   { id: "dashboard",   label: "Dashboard" },
@@ -45,7 +46,7 @@ export default function App() {
       <main className="content">
         {page === "dashboard"   && <Placeholder name="Dashboard" />}
         {page === "sales"       && <Sales />}
-        {page === "timekeeping" && <Placeholder name="Timekeeping" />}
+        {page === "timekeeping" && <Timekeeping />}
         {page === "calendar"    && <Placeholder name="Calendar" />}
         {page === "board"       && <Placeholder name="Board" />}
       </main>
