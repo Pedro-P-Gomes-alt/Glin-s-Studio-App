@@ -120,7 +120,8 @@ export default function Board() {
   async function load() {
     const rows = await query(`
       SELECT p.id, p.title, p.planned_start, p.planned_end,
-             p.material_cost_cents, p.sale_price_cents, p.status_override,
+             COALESCE((SELECT SUM(amount_cents) FROM materials WHERE project_id = p.id), 0) AS material_cost_cents,
+             p.sale_price_cents, p.status_override,
              p.shipped, p.delivered, p.project_type, p.personal_category,
              c.name AS client_name,
              cat.category, cat.subtype,

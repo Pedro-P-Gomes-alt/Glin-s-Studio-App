@@ -152,6 +152,7 @@ export default function Projects() {
   const [projects, setProjects] = useState([]);
   const [subtasksByProject, setSubtasksByProject] = useState({});
   const [showNew, setShowNew] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
   const [expanded, setExpanded] = useState({});
 
   useEffect(() => { loadAll(); }, []);
@@ -180,8 +181,8 @@ export default function Projects() {
     setSubtasksByProject(grouped);
   }
 
-  async function closeProject(p) {
-    // Finish without deleting — keeps all data, leaves the active list & Timekeeping dropdown.
+  async function archiveProject(p) {
+    // Archive without deleting — keeps all data, hides from the active list.
     await execute(`UPDATE projects SET shipped = 1, delivered = 1 WHERE id = ?`, [p.id]);
     await loadAll();
   }
@@ -200,23 +201,23 @@ export default function Projects() {
 
   function toggleExpand(id) { setExpanded(e => ({ ...e, [id]: !e[id] })); }
 
-  const activeProjects = projects.filter(p => !p.shipped && !p.delivered);
-  const closedProjects = projects.filter(p => p.shipped || p.delivered);
+  const activeProjects   = projects.filter(p => !p.shipped && !p.delivered);
+  const archivedProjects = projects.filter(p => p.shipped || p.delivered);
 
-  function renderCard(p, isClosed) {
+  function renderCard(p, isArchived) {
     const subtasks = subtasksByProject[p.id] ?? [];
     const totalMaterial = p.material_cost_cents + p.subtask_material;
     const doneCount = subtasks.filter(s => s.done).length;
     const isOpen = expanded[p.id] ?? false;
     return (
-      <div key={p.id} className={`project-card${isClosed ? " is-closed" : ""}`}>
+      <div key={p.id} className={`project-card${isArchived ? " is-closed" : ""}`}>
         <div className="project-card-head" onClick={() => toggleExpand(p.id)}>
           <button className="project-expand">{isOpen ? "▾" : "▸"}</button>
           <div className="project-card-main">
             <div className="project-card-title">{p.title}</div>
             <div className="project-card-meta">
               <span className="badge badge--personal">{CAT_LABEL[p.personal_category] ?? p.personal_category ?? "personal"}</span>
-              {isClosed && <span className="badge badge--done">Done</span>}
+              {isArchived && <span className="badge badge--done">Archived</span>}
               {subtasks.length > 0 && (
                 <span className="muted">{doneCount}/{subtasks.length} subtasks</span>
               )}
@@ -227,10 +228,10 @@ export default function Projects() {
             <span className="project-stat">{totalMaterial > 0 ? formatEuro(totalMaterial) : "—"}</span>
           </div>
           <div className="project-card-actions" onClick={e => e.stopPropagation()}>
-            {isClosed ? (
+            {isArchived ? (
               <button className="btn-ghost sm" title="Reopen project" onClick={() => reopenProject(p)}>↩ Reopen</button>
             ) : (
-              <button className="btn-ghost sm" title="Close — mark finished, keep the data" onClick={() => closeProject(p)}>✓ Close</button>
+              <button className="btn-ghost sm" title="Archive — hide it, keep the data" onClick={() => archiveProject(p)}>🗄 Archive</button>
             )}
             <button className="btn-icon" title="Delete project" onClick={() => deleteProject(p)}>✕</button>
           </div>
@@ -245,32 +246,40 @@ export default function Projects() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1>Projects</h1>
-        <button className="btn-primary" onClick={() => setShowNew(true)}>+ New Project</button>
+        <h1>{showArchive ? "Archived Projects" : "Projects"}</h1>
+        <div className="header-actions">
+          {showArchive ? (
+            <button className="btn-ghost" onClick={() => setShowArchive(false)}>← Back to active</button>
+          ) : (
+            <>
+              <button className="btn-ghost" onClick={() => setShowArchive(true)}>
+                🗄 Archive{archivedProjects.length > 0 ? ` (${archivedProjects.length})` : ""}
+              </button>
+              <button className="btn-primary" onClick={() => setShowNew(true)}>+ New Project</button>
+            </>
+          )}
+        </div>
       </div>
 
-      {projects.length === 0 ? (
-        <p className="empty-state">No projects yet. Click <strong>+ New Project</strong> to add your own work — videos, contests, anything not tied to a client.</p>
+      {showArchive ? (
+        archivedProjects.length === 0 ? (
+          <p className="empty-state">No archived projects. Archive a project to tuck it away here — you can reopen it any time.</p>
+        ) : (
+          <div className="project-list">
+            {archivedProjects.map(p => renderCard(p, true))}
+          </div>
+        )
       ) : (
-        <>
-          {activeProjects.length > 0 && (
-            <div className="project-list">
-              {activeProjects.map(p => renderCard(p, false))}
-            </div>
-          )}
-          {activeProjects.length === 0 && (
-            <p className="empty-state">No active projects. Click <strong>+ New Project</strong> or reopen a closed one below.</p>
-          )}
-
-          {closedProjects.length > 0 && (
-            <section className="project-closed-section">
-              <h2 className="project-closed-title">Closed</h2>
-              <div className="project-list">
-                {closedProjects.map(p => renderCard(p, true))}
-              </div>
-            </section>
-          )}
-        </>
+        activeProjects.length === 0 ? (
+          <p className="empty-state">
+            No active projects. Click <strong>+ New Project</strong> to add your own work — videos, contests, anything not tied to a client.
+            {archivedProjects.length > 0 && <> Past projects are in the <strong>Archive</strong>.</>}
+          </p>
+        ) : (
+          <div className="project-list">
+            {activeProjects.map(p => renderCard(p, false))}
+          </div>
+        )
       )}
 
       {showNew && (

@@ -143,6 +143,8 @@ const HISTORY_METRICS = [
   { key: "shipped", label: "Shipped", money: false, color: "#0288D1" },
 ];
 
+const fmtH = h => (h % 1 === 0 ? String(h) : Number(h).toFixed(1));
+
 function trendArrow(current, avg) {
   if (!avg || avg === 0) return null;
   const pctDiff = ((current - avg) / avg) * 100;
@@ -165,6 +167,7 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
   const [clientSplit, setClientSplit] = useState(null);
   const [weeklyHours, setWeeklyHours] = useState([]);
   const [pipeline, setPipeline]       = useState(null);
+  const [estimateJobs, setEstimateJobs] = useState([]);
 
   // History state
   const [monthlyShipped, setMonthlyShipped] = useState([]);
@@ -185,7 +188,7 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
 
   async function loadAll() {
     const [mw, mavg, mh, ov, cats, subs, cls, split, wh, pip, pmth, ptrend, ytq, igq, ttq,
-           msh, mca, mho] =
+           msh, mca, mho, est] =
       await Promise.all([
         // Cash received via payments this month (by received_on date)
         query(`
@@ -216,7 +219,7 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
         query(`
           SELECT COUNT(DISTINCT p.id) AS total,
                  COALESCE(SUM(p.sale_price_cents), 0) AS revenue,
-                 COALESCE(SUM(p.sale_price_cents - p.material_cost_cents), 0) AS profit,
+                 COALESCE(SUM(p.sale_price_cents - (SELECT COALESCE(SUM(amount_cents), 0) FROM materials WHERE project_id = p.id)), 0) AS profit,
                  COALESCE(SUM(tl.hours), 0) AS hours
           FROM projects p
           LEFT JOIN time_logs tl ON tl.project_id = p.id
@@ -226,7 +229,7 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
           SELECT cat.category,
                  COUNT(DISTINCT p.id) AS count,
                  COALESCE(SUM(p.sale_price_cents), 0) AS revenue,
-                 COALESCE(SUM(p.sale_price_cents - p.material_cost_cents), 0) AS profit,
+                 COALESCE(SUM(p.sale_price_cents - (SELECT COALESCE(SUM(amount_cents), 0) FROM materials WHERE project_id = p.id)), 0) AS profit,
                  COALESCE(SUM(tl.hours), 0) AS hours
           FROM projects p
           JOIN categories cat ON p.category_id = cat.id
@@ -239,7 +242,7 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
           SELECT cat.category, cat.subtype,
                  COUNT(DISTINCT p.id) AS count,
                  COALESCE(SUM(p.sale_price_cents), 0) AS revenue,
-                 COALESCE(SUM(p.sale_price_cents - p.material_cost_cents), 0) AS profit,
+                 COALESCE(SUM(p.sale_price_cents - (SELECT COALESCE(SUM(amount_cents), 0) FROM materials WHERE project_id = p.id)), 0) AS profit,
                  COALESCE(SUM(tl.hours), 0) AS hours
           FROM projects p
           JOIN categories cat ON p.category_id = cat.id
@@ -328,7 +331,7 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
           SELECT strftime('%Y-%m', shipped_at) AS month,
                  COUNT(*) AS count,
                  COALESCE(SUM(sale_price_cents), 0) AS revenue,
-                 COALESCE(SUM(sale_price_cents - material_cost_cents), 0) AS profit
+                 COALESCE(SUM(sale_price_cents - (SELECT COALESCE(SUM(amount_cents), 0) FROM materials WHERE project_id = projects.id)), 0) AS profit
           FROM projects
           WHERE shipped = 1 AND project_type = 'commission' AND shipped_at IS NOT NULL
             AND shipped_at >= date('now', '-12 months', 'start of month')
@@ -350,6 +353,16 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
           WHERE date >= date('now', '-12 months', 'start of month')
           GROUP BY month
         `),
+        // Estimate accuracy: shipped commissions that had an estimate
+        query(`
+          SELECT p.id, p.title, cat.category, p.estimated_hours,
+                 COALESCE((SELECT SUM(hours) FROM time_logs WHERE project_id = p.id), 0) AS actual_hours
+          FROM projects p
+          JOIN categories cat ON p.category_id = cat.id
+          WHERE p.project_type = 'commission' AND p.shipped = 1
+            AND p.estimated_hours IS NOT NULL AND p.estimated_hours > 0
+          ORDER BY p.shipped_at DESC, p.id DESC
+        `),
       ]);
 
     setMonthCash(mw[0] ?? null);
@@ -370,7 +383,21 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
     setMonthlyShipped(msh);
     setMonthlyCash(mca);
     setMonthlyHours(mho);
+    setEstimateJobs(est);
   }
+
+  // ── Estimate accuracy ──────────────────────────────────────────────
+  const estTotalPlanned = estimateJobs.reduce((s, j) => s + j.estimated_hours, 0);
+  const estTotalActual  = estimateJobs.reduce((s, j) => s + j.actual_hours, 0);
+  const estBiasPct = estTotalPlanned > 0
+    ? Math.round(((estTotalActual - estTotalPlanned) / estTotalPlanned) * 100)
+    : 0;
+  const estInsight = estimateJobs.length === 0 ? null
+    : estBiasPct > 10
+      ? `You tend to underestimate — jobs take about ${estBiasPct}% longer than planned. Padding your time estimates (and prices) would reflect reality better.`
+      : estBiasPct < -10
+        ? `You tend to overestimate — jobs finish about ${Math.abs(estBiasPct)}% faster than planned. You have room to quote more competitively, or you're pricing in a safe buffer.`
+        : `Your estimates are on point — within ${Math.abs(estBiasPct)}% of actual time across ${estimateJobs.length} job${estimateJobs.length !== 1 ? "s" : ""}.`;
 
   const noShipped = !overview || overview.total === 0;
 
@@ -521,6 +548,52 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
             <strong>Observation:</strong> {obs}
           </div>
         )}
+
+        {/* Estimate accuracy */}
+        <DashSection title="Estimate Accuracy" hint="Planned vs actual hours on shipped commissions">
+          {estimateJobs.length === 0 ? (
+            <Empty msg="Set an estimated time on your orders to see how your planning compares to reality." />
+          ) : (
+            <>
+              <div className={`dash-estimate-banner ${estBiasPct > 10 ? "is-under" : estBiasPct < -10 ? "is-over" : "is-onpoint"}`}>
+                {estInsight}
+              </div>
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr><th>Job</th><th>Type</th><th>Estimated</th><th>Actual</th><th>Variance</th></tr>
+                  </thead>
+                  <tbody>
+                    {estimateJobs.map(j => {
+                      const diff = j.actual_hours - j.estimated_hours;
+                      const pctv = j.estimated_hours > 0 ? Math.round((diff / j.estimated_hours) * 100) : 0;
+                      const close = Math.abs(pctv) <= 10;
+                      return (
+                        <tr key={j.id}>
+                          <td>{j.title}</td>
+                          <td><span className="badge">{j.category}</span></td>
+                          <td>{fmtH(j.estimated_hours)}h</td>
+                          <td>{fmtH(j.actual_hours)}h</td>
+                          <td className={close ? "" : diff > 0 ? "negative" : "positive"}>
+                            {diff === 0 ? "on point" : `${diff > 0 ? "+" : ""}${fmtH(diff)}h (${pctv > 0 ? "+" : ""}${pctv}%)`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr className="dash-estimate-total">
+                      <td colSpan={2}>Total</td>
+                      <td>{fmtH(estTotalPlanned)}h</td>
+                      <td>{fmtH(estTotalActual)}h</td>
+                      <td className={Math.abs(estBiasPct) <= 10 ? "" : estBiasPct > 0 ? "negative" : "positive"}>
+                        {estBiasPct > 0 ? "+" : ""}{estBiasPct}%
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </DashSection>
 
         {/* Category breakdown */}
         <DashSection title="By Category" hint="Shipped commissions only">

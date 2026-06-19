@@ -243,13 +243,25 @@ function SettingsPanel({ settings, quotesConfig, socialConfig,
   );
 }
 
-// ── Toast notification ─────────────────────────────────────────────────
-function Toast({ count, onDismiss }) {
-  useEffect(() => { const t = setTimeout(onDismiss, 6000); return () => clearTimeout(t); }, []);
+// ── New-quote popup (must be dismissed) ─────────────────────────────────
+function QuoteAlert({ count, onView, onDismiss }) {
   return (
-    <div className="toast" onClick={onDismiss}>
-      {count === 1 ? "New quote request received!" : `${count} new quote requests received!`}
-      <button className="toast-dismiss">✕</button>
+    <div className="dialog-overlay quote-alert-overlay">
+      <div className="dialog quote-alert" onClick={e => e.stopPropagation()}>
+        <div className="quote-alert-icon">📨</div>
+        <h3 className="quote-alert-title">
+          {count === 1 ? "New quote request!" : `${count} new quote requests!`}
+        </h3>
+        <p className="quote-alert-sub">
+          {count === 1
+            ? "Someone just filled in your commission form."
+            : "New responses came in from your commission form."}
+        </p>
+        <div className="form-actions quote-alert-actions">
+          <button className="btn-ghost" onClick={onDismiss}>Dismiss</button>
+          <button className="btn-primary" onClick={onView}>View quotes</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -531,7 +543,13 @@ export default function App() {
         {page === "quotes"      && <Quotes config={quotesConfig} onUnseenChange={setUnseenQuotes} onRefresh={fetchAndStoreQuotes} />}
       </main>
 
-      {toast && <Toast count={toast} onDismiss={() => setToast(null)} />}
+      {toast && (
+        <QuoteAlert
+          count={toast}
+          onView={() => { setPage("quotes"); setToast(null); }}
+          onDismiss={() => setToast(null)}
+        />
+      )}
 
       {showSettings && (
         <SettingsPanel

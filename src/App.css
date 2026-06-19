@@ -3101,3 +3101,31 @@ body {
 }
 
 .cal-legend-dot.reminder { background: #6B5BD2; }
+
+/* ── Estimate accuracy (dashboard) ────────────────────────── */
+.dash-estimate-banner {
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.dash-estimate-banner.is-under  { background: #FEF2F2; border-color: #F6C9C9; color: #9B2C2C; }
+.dash-estimate-banner.is-over   { background: #F0FAF4; border-color: #BFE6CF; color: #1E6B43; }
+.dash-estimate-banner.is-onpoint{ background: var(--pink-light); border-color: var(--pink-border); color: var(--brand-dark); }
+
+.data-table tr.dash-estimate-total td {
+  font-weight: 800;
+  border-top: 2px solid var(--border);
+  background: var(--bg);
+}
+
+/* ── New-quote popup ──────────────────────────────────────── */
+.quote-alert-overlay { z-index: 300; }
+.quote-alert { text-align: center; width: 360px; }
+.quote-alert-icon { font-size: 2.4rem; margin-bottom: 6px; }
+.quote-alert-title { font-size: 1.1rem; font-weight: 800; color: var(--black); margin: 0 0 6px; }
+.quote-alert-sub { font-size: 0.88rem; color: var(--muted); margin: 0; }
+.quote-alert-actions { justify-content: center; margin-top: 18px; }

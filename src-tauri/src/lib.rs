@@ -69,6 +69,12 @@ pub fn run() {
             sql: include_str!("../migrations/011_reminders.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 12,
+            description: "materials line items and estimated hours",
+            sql: include_str!("../migrations/012_materials_estimates.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

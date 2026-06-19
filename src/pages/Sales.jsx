@@ -10,18 +10,13 @@ const PAYMENT_LABELS = {
   other:   "Other",
 };
 
-function resetForm() {
-  return {
-    clientId: "", newClient: false, newClientName: "", newClientContact: "",
-    title: "", category: "cosplay", subtype: "",
-    plannedStart: "", plannedEnd: "", materialCost: "", salePrice: "",
-  };
-}
+const CATEGORY_LABEL = { cosplay: "Cosplay", sports: "Sports" };
+const today = () => new Date().toISOString().split("T")[0];
 
 // ── Record Payment dialog (centered) ────────────────────────────────────
 function PaymentDialog({ commission, onSave, onClose }) {
   const [amount, setAmount]   = useState("");
-  const [date, setDate]       = useState(new Date().toISOString().split("T")[0]);
+  const [date, setDate]       = useState(today());
   const [label, setLabel]     = useState("advance");
   const [saving, setSaving]   = useState(false);
 
@@ -86,6 +81,63 @@ function PaymentDialog({ commission, onSave, onClose }) {
   );
 }
 
+// ── Add Material dialog (centered) — works exactly like payments ────────
+function MaterialDialog({ commission, onSave, onClose }) {
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
+  const [date, setDate]     = useState(today());
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await execute(
+        `INSERT INTO materials (project_id, description, amount_cents, bought_on) VALUES (?, ?, ?, ?)`,
+        [commission.id, description.trim() || "Material", eurosToCents(amount), date]
+      );
+      onSave();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="dialog-overlay" onClick={onClose}>
+      <div className="dialog" onClick={e => e.stopPropagation()}>
+        <div className="dialog-header">
+          <h3 className="dialog-title">Add Material</h3>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <p className="dialog-sub">{commission.title}</p>
+        <form onSubmit={handleSubmit} style={{ marginTop: 16 }}>
+          <div className="field">
+            <label>What did you buy? *</label>
+            <input value={description} onChange={e => setDescription(e.target.value)}
+              placeholder="e.g. 3m red satin" required autoFocus />
+          </div>
+          <div className="field">
+            <label>Amount (€) *</label>
+            <input type="number" min="0.01" step="0.01" value={amount}
+              onChange={e => setAmount(e.target.value)} placeholder="0.00" required />
+          </div>
+          <div className="field">
+            <label>Date bought *</label>
+            <input type="date" value={date}
+              onChange={e => setDate(e.target.value)} required />
+          </div>
+          <div className="form-actions" style={{ marginTop: 16 }}>
+            <button type="button" className="btn-ghost" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={saving}>
+              {saving ? "Saving…" : "Add material"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Update Order panel ─────────────────────────────────────────────────
 function FinalizePanel({ sale, categories, onSave, onClose }) {
   const [title, setTitle] = useState(sale.title);
@@ -93,18 +145,21 @@ function FinalizePanel({ sale, categories, onSave, onClose }) {
   const [subtype, setSubtype] = useState(sale.subtype || "");
   const [plannedStart, setPlannedStart] = useState(sale.planned_start || "");
   const [plannedEnd, setPlannedEnd]     = useState(sale.planned_end || "");
-  const [materialCost, setMaterialCost] = useState(
-    sale.material_cost_cents ? (sale.material_cost_cents / 100).toFixed(2) : ""
+  const [estimatedHours, setEstimatedHours] = useState(
+    sale.estimated_hours != null ? String(sale.estimated_hours) : ""
   );
   const [salePrice, setSalePrice] = useState(
     sale.sale_price_cents ? (sale.sale_price_cents / 100).toFixed(2) : ""
   );
   const [saving, setSaving] = useState(false);
-  const [payments, setPayments] = useState([]);
+  const [payments, setPayments]   = useState([]);
+  const [materials, setMaterials] = useState([]);
 
   useEffect(() => {
     query(`SELECT * FROM payments WHERE project_id = ? ORDER BY received_on ASC`, [sale.id])
       .then(setPayments);
+    query(`SELECT * FROM materials WHERE project_id = ? ORDER BY bought_on ASC`, [sale.id])
+      .then(setMaterials);
   }, [sale.id]);
 
   const subtypesForCategory = categories.filter(c => c.category === category).map(c => c.subtype);
@@ -117,7 +172,7 @@ function FinalizePanel({ sale, categories, onSave, onClose }) {
     );
   }
 
-  const materialCents = eurosToCents(materialCost);
+  const materialCents = materials.reduce((s, m) => s + m.amount_cents, 0);
   const saleCents     = eurosToCents(salePrice);
   const profitCents   = saleCents - materialCents;
   const showReadout   = saleCents > 0;
@@ -128,36 +183,27 @@ function FinalizePanel({ sale, categories, onSave, onClose }) {
     return cat ? cat.id : sale.category_id;
   }
 
+  async function persist(extra = "") {
+    await execute(
+      `UPDATE projects SET title = ?, category_id = ?, planned_start = ?, planned_end = ?,
+         estimated_hours = ?, sale_price_cents = ?${extra} WHERE id = ?`,
+      [title.trim(), resolveCategoryId(), plannedStart || null, plannedEnd || null,
+       estimatedHours ? Number(estimatedHours) : null, saleCents, sale.id]
+    );
+  }
+
   async function handleShip(e) {
     e.preventDefault();
     setSaving(true);
-    try {
-      await execute(
-        `UPDATE projects SET title = ?, category_id = ?, planned_start = ?, planned_end = ?,
-           material_cost_cents = ?, sale_price_cents = ?, shipped = 1, shipped_at = date('now') WHERE id = ?`,
-        [title.trim(), resolveCategoryId(), plannedStart || null, plannedEnd || null,
-         materialCents, saleCents, sale.id]
-      );
-      onSave();
-    } finally {
-      setSaving(false);
-    }
+    try { await persist(`, shipped = 1, shipped_at = date('now')`); onSave(); }
+    finally { setSaving(false); }
   }
 
   async function handleSaveOnly(e) {
     e.preventDefault();
     setSaving(true);
-    try {
-      await execute(
-        `UPDATE projects SET title = ?, category_id = ?, planned_start = ?, planned_end = ?,
-           material_cost_cents = ?, sale_price_cents = ? WHERE id = ?`,
-        [title.trim(), resolveCategoryId(), plannedStart || null, plannedEnd || null,
-         materialCents, saleCents, sale.id]
-      );
-      onSave();
-    } finally {
-      setSaving(false);
-    }
+    try { await persist(); onSave(); }
+    finally { setSaving(false); }
   }
 
   return (
@@ -201,7 +247,7 @@ function FinalizePanel({ sale, categories, onSave, onClose }) {
                 <button key={cat} type="button"
                   className={category === cat ? "active" : ""}
                   onClick={() => pickCategory(cat)}>
-                  {cat === "cosplay" ? "Cosplay" : "Sports"}
+                  {CATEGORY_LABEL[cat]}
                 </button>
               ))}
             </div>
@@ -225,6 +271,23 @@ function FinalizePanel({ sale, categories, onSave, onClose }) {
             </div>
           </div>
 
+          {/* Materials recorded (add new ones with the + in the table) */}
+          {materials.length > 0 && (
+            <div className="finalize-payments">
+              <div className="finalize-payments-label">Materials recorded</div>
+              {materials.map(m => (
+                <div key={m.id} className="finalize-payment-row">
+                  <span style={{ flex: 1 }}>{m.description}</span>
+                  <span>{formatEuro(m.amount_cents)}</span>
+                  <span className="muted">{m.bought_on}</span>
+                </div>
+              ))}
+              <div className="finalize-payment-total">
+                Total materials: {formatEuro(materialCents)}
+              </div>
+            </div>
+          )}
+
           {/* Payment history */}
           {payments.length > 0 && (
             <div className="finalize-payments">
@@ -247,10 +310,10 @@ function FinalizePanel({ sale, categories, onSave, onClose }) {
 
           <div className="field-pair">
             <div className="field">
-              <label>Material cost (€)</label>
-              <input type="number" min="0" step="0.01"
-                value={materialCost} onChange={e => setMaterialCost(e.target.value)}
-                placeholder="0.00" />
+              <label>Estimated time (hours)</label>
+              <input type="number" min="0" step="0.5"
+                value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)}
+                placeholder="e.g. 20" />
             </div>
             <div className="field">
               <label>Sale price (€) *</label>
@@ -298,9 +361,11 @@ export default function Sales() {
   const [sales, setSales]           = useState([]);
   const [categories, setCategories] = useState([]);
   const [clients, setClients]       = useState([]);
+  const [categoryRates, setCategoryRates] = useState({}); // cents/hour by category
   const [showNewForm, setShowNewForm]         = useState(false);
   const [finalizing, setFinalizing] = useState(null);
   const [payDialog, setPayDialog]   = useState(null);
+  const [matDialog, setMatDialog]   = useState(null);
   const [workspace, setWorkspace]   = useState(null);
   const [form, setForm]             = useState(resetForm());
   const [saving, setSaving]         = useState(false);
@@ -308,14 +373,15 @@ export default function Sales() {
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    const [s, cats, cls] = await Promise.all([
+    const [s, cats, cls, rates] = await Promise.all([
       query(`
-        SELECT p.id, p.title, p.material_cost_cents, p.sale_price_cents,
+        SELECT p.id, p.title, p.estimated_hours, p.sale_price_cents,
                p.created_at, p.shipped, p.category_id,
                p.planned_start, p.planned_end,
                c.name AS client_name,
                cat.category, cat.subtype,
                COALESCE((SELECT SUM(hours) FROM time_logs WHERE project_id = p.id), 0) AS total_hours,
+               COALESCE((SELECT SUM(amount_cents) FROM materials WHERE project_id = p.id), 0) AS total_material,
                COALESCE((SELECT SUM(amount_cents) FROM payments WHERE project_id = p.id), 0) AS total_received
         FROM projects p
         LEFT JOIN clients c ON p.client_id = c.id
@@ -328,10 +394,23 @@ export default function Sales() {
       `),
       query(`SELECT * FROM categories ORDER BY category, sort_order, subtype`),
       query(`SELECT id, name FROM clients ORDER BY name`),
+      // Average €/hour earned per category, from shipped commissions.
+      query(`
+        SELECT cat.category,
+               COALESCE(SUM(p.sale_price_cents), 0) AS revenue,
+               COALESCE(SUM((SELECT COALESCE(SUM(hours), 0) FROM time_logs WHERE project_id = p.id)), 0) AS hours
+        FROM projects p
+        JOIN categories cat ON p.category_id = cat.id
+        WHERE p.shipped = 1 AND p.project_type = 'commission'
+        GROUP BY cat.category
+      `),
     ]);
     setSales(s);
     setCategories(cats);
     setClients(cls);
+    const rateMap = {};
+    for (const r of rates) rateMap[r.category] = r.hours > 0 ? r.revenue / r.hours : 0;
+    setCategoryRates(rateMap);
   }
 
   function set(key) { return (e) => setForm(prev => ({ ...prev, [key]: e.target.value })); }
@@ -345,10 +424,12 @@ export default function Sales() {
     .filter(c => c.category === form.category)
     .map(c => c.subtype);
 
-  const materialCents = eurosToCents(form.materialCost);
   const saleCents     = eurosToCents(form.salePrice);
-  const profitCents   = saleCents - materialCents;
-  const showReadout   = saleCents > 0;
+  const profitCents   = saleCents; // no materials at creation — they're added later
+  const estHours      = parseFloat(form.estimatedHours) || 0;
+  const rateCents     = categoryRates[form.category] || 0; // cents per hour
+  const estimateCents = estHours > 0 && rateCents > 0 ? Math.round(estHours * rateCents) : null;
+  const showReadout   = saleCents > 0 || estHours > 0;
 
   function openForm() {
     const f = resetForm();
@@ -375,12 +456,12 @@ export default function Sales() {
       await execute(
         `INSERT INTO projects
            (client_id, category_id, title, planned_start, planned_end,
-            material_cost_cents, sale_price_cents, shipped, project_type)
+            estimated_hours, sale_price_cents, shipped, project_type)
          VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'commission')`,
         [
           resolvedClientId, cat.id, form.title.trim(),
           form.plannedStart || null, form.plannedEnd || null,
-          materialCents, saleCents,
+          estHours > 0 ? estHours : null, saleCents,
         ]
       );
       setShowNewForm(false);
@@ -405,7 +486,7 @@ export default function Sales() {
             <thead>
               <tr>
                 <th>Title</th><th>Client</th><th>Type</th>
-                <th>Material</th><th>Agreed</th><th>Payments</th><th>Hours</th><th></th>
+                <th>Materials</th><th>Agreed</th><th>Payments</th><th>Hours</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -419,7 +500,17 @@ export default function Sales() {
                     <td>{s.title}</td>
                     <td>{s.client_name ?? "—"}</td>
                     <td><span className="badge">{s.category}</span> {s.subtype}</td>
-                    <td>{formatEuro(s.material_cost_cents)}</td>
+                    <td>
+                      <div className="pay-cell">
+                        {s.total_material > 0
+                          ? <span>{formatEuro(s.total_material)}</span>
+                          : <span className="muted">—</span>}
+                        <button
+                          className="pay-add-btn"
+                          onClick={e => { e.stopPropagation(); setMatDialog(s); }}
+                          title="Add material">+</button>
+                      </div>
+                    </td>
                     <td>{formatEuro(s.sale_price_cents)}</td>
                     <td>
                       <div className="pay-cell">
@@ -510,7 +601,7 @@ export default function Sales() {
                     <button key={cat} type="button"
                       className={form.category === cat ? "active" : ""}
                       onClick={() => setCategory(cat)}>
-                      {cat === "cosplay" ? "Cosplay" : "Sports"}
+                      {CATEGORY_LABEL[cat]}
                     </button>
                   ))}
                 </div>
@@ -536,9 +627,9 @@ export default function Sales() {
 
               <div className="field-pair">
                 <div className="field">
-                  <label>Material cost (€)</label>
-                  <input type="number" min="0" step="0.01" value={form.materialCost}
-                    onChange={set("materialCost")} placeholder="0.00" />
+                  <label>Estimated time (hours)</label>
+                  <input type="number" min="0" step="0.5" value={form.estimatedHours}
+                    onChange={set("estimatedHours")} placeholder="e.g. 20" />
                 </div>
                 <div className="field">
                   <label>Agreed price (€) *</label>
@@ -560,10 +651,17 @@ export default function Sales() {
                     <span className="readout-value">{formatMargin(profitCents, saleCents)}</span>
                   </div>
                   <div className="readout-item">
-                    <span className="readout-label">€/hour</span>
-                    <span className="readout-value">—</span>
+                    <span className="readout-label">Estimate</span>
+                    <span className="readout-value">
+                      {estimateCents != null ? formatEuro(estimateCents) : "—"}
+                    </span>
                   </div>
                 </div>
+              )}
+              {estHours > 0 && rateCents === 0 && (
+                <p className="settings-hint">
+                  No shipped {CATEGORY_LABEL[form.category].toLowerCase()} jobs with logged hours yet — can’t estimate a price until you have some history.
+                </p>
               )}
 
               <div className="form-actions">
@@ -596,6 +694,15 @@ export default function Sales() {
         />
       )}
 
+      {/* Material dialog */}
+      {matDialog && (
+        <MaterialDialog
+          commission={matDialog}
+          onSave={async () => { setMatDialog(null); await loadAll(); }}
+          onClose={() => setMatDialog(null)}
+        />
+      )}
+
       {/* Details / workspace panel */}
       {workspace && (
         <Workspace
@@ -606,4 +713,12 @@ export default function Sales() {
       )}
     </div>
   );
+}
+
+function resetForm() {
+  return {
+    clientId: "", newClient: false, newClientName: "", newClientContact: "",
+    title: "", category: "cosplay", subtype: "",
+    plannedStart: "", plannedEnd: "", estimatedHours: "", salePrice: "",
+  };
 }

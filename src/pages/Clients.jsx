@@ -33,7 +33,8 @@ function ClientPanel({ client, onClose, onUpdate }) {
 
   async function loadCommissions() {
     const rows = await query(
-      `SELECT p.id, p.title, p.sale_price_cents, p.material_cost_cents,
+      `SELECT p.id, p.title, p.sale_price_cents,
+              COALESCE((SELECT SUM(amount_cents) FROM materials WHERE project_id = p.id), 0) AS material_cost_cents,
               p.planned_start, p.planned_end, p.shipped, p.delivered,
               cat.category, cat.subtype
        FROM projects p
