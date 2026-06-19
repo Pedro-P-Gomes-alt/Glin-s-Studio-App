@@ -15,13 +15,13 @@ import { query, execute } from "./db";
 // ── Font settings ──────────────────────────────────────────────────────
 const FONT_SIZES    = { compact: "13px", default: "15px", comfortable: "17px" };
 const FONT_FAMILIES = {
-  system: "system-ui, -apple-system, sans-serif",
+  system: "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif",
   segoe:  "'Segoe UI', system-ui, sans-serif",
-  serif:  "Georgia, 'Times New Roman', serif",
+  serif:  "'Fraunces', Georgia, 'Times New Roman', serif",
   mono:   "'Cascadia Code', Consolas, 'Courier New', monospace",
 };
 const FONT_FAMILY_LABELS = {
-  system: "System default", segoe: "Segoe UI (Windows)", serif: "Serif", mono: "Monospace",
+  system: "Inter (default)", segoe: "Segoe UI (Windows)", serif: "Fraunces (serif)", mono: "Monospace",
 };
 
 const DEFAULT_SETTINGS      = { fontSize: "default", fontFamily: "system" };
