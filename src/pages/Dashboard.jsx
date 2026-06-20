@@ -2,56 +2,6 @@ import { useState, useEffect } from "react";
 import { query } from "../db";
 import { formatEuro, formatEuroPerHour, formatMargin } from "../utils/money";
 
-const SOCIAL_PLATFORMS = [
-  { id: "youtube",   label: "YouTube",   color: "#E53935", metric: "subscribers" },
-  { id: "instagram", label: "Instagram", color: "#C13584", metric: "followers" },
-  { id: "tiktok",    label: "TikTok",    color: "#FE2C55", metric: "followers" },
-];
-
-function socialLatest(snaps) {
-  return snaps.length ? snaps[snaps.length - 1].value : null;
-}
-
-function socialGrowth(snaps, days) {
-  if (snaps.length < 2) return null;
-  const latest  = snaps[snaps.length - 1];
-  const cutoff  = new Date(latest.recorded_on + "T00:00:00");
-  cutoff.setDate(cutoff.getDate() - days);
-  const cutStr  = cutoff.toISOString().split("T")[0];
-  const past    = [...snaps].reverse().find(s => s.recorded_on <= cutStr);
-  if (!past || past.recorded_on === latest.recorded_on) return null;
-  return latest.value - past.value;
-}
-
-function MiniChart({ snapshots, color }) {
-  if (!snapshots || snapshots.length < 2) return <div style={{ height: 36 }} />;
-  const values = snapshots.map(s => s.value);
-  const min = Math.min(...values), max = Math.max(...values);
-  const range = max - min || 1;
-  const W = 200, H = 36, P = 2;
-  const pts = snapshots.map((s, i) => [
-    P + (i / (snapshots.length - 1)) * (W - P * 2),
-    P + (1 - (s.value - min) / range) * (H - P * 2),
-  ]);
-  const pl   = pts.map(([x, y]) => `${x},${y}`).join(" ");
-  const area = `${pts[0][0]},${H} ${pl} ${pts[pts.length - 1][0]},${H}`;
-  const gid  = `mg${color.replace(/[^a-z0-9]/gi, "")}`;
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
-      style={{ width: "100%", height: H, display: "block", marginTop: 8 }}>
-      <defs>
-        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%"   stopColor={color} stopOpacity="0.2" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <polygon points={area} fill={`url(#${gid})`} />
-      <polyline points={pl} fill="none" stroke={color}
-        strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 const PERSONAL_CAT_META = [
   { key: "video",       label: "YouTube",     color: "#E53935" },
   { key: "short",       label: "Short-form",  color: "#8E24AA" },
@@ -153,20 +103,21 @@ function trendArrow(current, avg) {
   return { icon: "→", label: "on track", cls: "trend-flat" };
 }
 
-export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial }) {
+export default function Dashboard() {
   const [activeTab, setActiveTab]     = useState("overview");
 
   // Overview state
   const [monthCash, setMonthCash]     = useState(null);
   const [monthAvg, setMonthAvg]       = useState(null);
   const [monthHours, setMonthHours]   = useState(0);
+  const [monthMaterials, setMonthMaterials] = useState(0);
   const [overview, setOverview]       = useState(null);
   const [byCategory, setByCategory]   = useState([]);
   const [bySubtype, setBySubtype]     = useState([]);
   const [topClients, setTopClients]   = useState([]);
   const [clientSplit, setClientSplit] = useState(null);
   const [weeklyHours, setWeeklyHours] = useState([]);
-  const [pipeline, setPipeline]       = useState(null);
+  const [unpaid, setUnpaid]           = useState(null);
   const [estimateJobs, setEstimateJobs] = useState([]);
 
   // History state
@@ -176,19 +127,18 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
   const [historyMetric, setHistoryMetric]   = useState("revenue");
 
   // Personal state
-  const [personalThisMonth, setPersonalThisMonth] = useState([]);
   const [personalTrend, setPersonalTrend]           = useState([]);
-
-  // Social state
-  const [ytSnaps, setYtSnaps] = useState([]);
-  const [igSnaps, setIgSnaps] = useState([]);
-  const [ttSnaps, setTtSnaps] = useState([]);
+  const [personalStats, setPersonalStats]           = useState(null);
+  const [personalShare, setPersonalShare]           = useState(null);
+  const [timeSplit, setTimeSplit]                   = useState([]);
+  const [personalEffort, setPersonalEffort]         = useState([]);
+  const [activePersonal, setActivePersonal]         = useState([]);
 
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    const [mw, mavg, mh, ov, cats, subs, cls, split, wh, pip, pmth, ptrend, ytq, igq, ttq,
-           msh, mca, mho, est] =
+    const [mw, mavg, mh, ov, cats, subs, cls, split, wh, pip, ptrend,
+           msh, mca, mho, est, matMonth, pstats, pshare, tsplit, peffort, pactive] =
       await Promise.all([
         // Cash received via payments this month (by received_on date)
         query(`
@@ -197,15 +147,22 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
           FROM payments
           WHERE strftime('%Y-%m', received_on) = strftime('%Y-%m', 'now')
         `),
-        // 3-month trailing average of monthly cash received
+        // 3-month trailing average of monthly NET (cash received − materials bought)
         query(`
           SELECT AVG(monthly) AS avg_received
           FROM (
-            SELECT strftime('%Y-%m', received_on) AS m,
-                   SUM(amount_cents) AS monthly
-            FROM payments
-            WHERE strftime('%Y-%m', received_on) < strftime('%Y-%m', 'now')
-              AND received_on >= date('now', '-3 months', 'start of month')
+            SELECT m, SUM(amount) AS monthly
+            FROM (
+              SELECT strftime('%Y-%m', received_on) AS m, amount_cents AS amount
+              FROM payments
+              WHERE strftime('%Y-%m', received_on) < strftime('%Y-%m', 'now')
+                AND received_on >= date('now', '-3 months', 'start of month')
+              UNION ALL
+              SELECT strftime('%Y-%m', bought_on) AS m, -amount_cents AS amount
+              FROM materials
+              WHERE strftime('%Y-%m', bought_on) < strftime('%Y-%m', 'now')
+                AND bought_on >= date('now', '-3 months', 'start of month')
+            )
             GROUP BY m
           ) sub
         `),
@@ -282,25 +239,18 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
           GROUP BY week
           ORDER BY week
         `),
+        // Unpaid balance: sale price still owed across commissions
         query(`
           SELECT COUNT(*) AS count,
-                 COALESCE(SUM(sale_price_cents), 0) AS value
-          FROM projects
-          WHERE shipped = 0 AND delivered = 0
-            AND sale_price_cents IS NOT NULL
-            AND project_type = 'commission'
-        `),
-        // Personal: this month by category
-        query(`
-          SELECT p.personal_category AS cat,
-                 COUNT(DISTINCT p.id) AS count,
-                 COALESCE((
-                   SELECT SUM(hours) FROM time_logs WHERE project_id = p.id
-                 ), 0) AS hours
-          FROM projects p
-          WHERE p.project_type = 'personal'
-            AND strftime('%Y-%m', p.created_at) = strftime('%Y-%m', 'now')
-          GROUP BY p.personal_category
+                 COALESCE(SUM(balance), 0) AS value
+          FROM (
+            SELECT p.sale_price_cents
+                   - COALESCE((SELECT SUM(amount_cents) FROM payments WHERE project_id = p.id), 0) AS balance
+            FROM projects p
+            WHERE p.project_type = 'commission'
+              AND p.sale_price_cents IS NOT NULL
+          ) sub
+          WHERE balance > 0
         `),
         // Personal: last 6 months trend by category
         query(`
@@ -313,19 +263,6 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
           GROUP BY month, personal_category
           ORDER BY month
         `),
-        // Social snapshots — last 30 days
-        query(`SELECT recorded_on, value FROM social_snapshots
-               WHERE platform='youtube' AND metric='subscribers'
-                 AND recorded_on >= date('now', '-30 days')
-               ORDER BY recorded_on`),
-        query(`SELECT recorded_on, value FROM social_snapshots
-               WHERE platform='instagram' AND metric='followers'
-                 AND recorded_on >= date('now', '-30 days')
-               ORDER BY recorded_on`),
-        query(`SELECT recorded_on, value FROM social_snapshots
-               WHERE platform='tiktok' AND metric='followers'
-                 AND recorded_on >= date('now', '-30 days')
-               ORDER BY recorded_on`),
         // History: shipped commissions per month (by shipped date) — last 12 months
         query(`
           SELECT strftime('%Y-%m', shipped_at) AS month,
@@ -363,23 +300,87 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
             AND p.estimated_hours IS NOT NULL AND p.estimated_hours > 0
           ORDER BY p.shipped_at DESC, p.id DESC
         `),
+        // Material spend this calendar month (by purchase date)
+        query(`
+          SELECT COALESCE(SUM(amount_cents), 0) AS spent
+          FROM materials
+          WHERE strftime('%Y-%m', bought_on) = strftime('%Y-%m', 'now')
+        `),
+        // Personal: headline totals (this month / this year)
+        query(`
+          SELECT
+            (SELECT COALESCE(SUM(tl.hours), 0) FROM time_logs tl JOIN projects p ON p.id = tl.project_id
+               WHERE p.project_type = 'personal' AND strftime('%Y-%m', tl.date) = strftime('%Y-%m', 'now')) AS hours_month,
+            (SELECT COALESCE(SUM(tl.hours), 0) FROM time_logs tl JOIN projects p ON p.id = tl.project_id
+               WHERE p.project_type = 'personal' AND tl.date >= date('now', 'start of year')) AS hours_year,
+            (SELECT COALESCE(SUM(m.amount_cents), 0) FROM materials m JOIN projects p ON p.id = m.project_id
+               WHERE p.project_type = 'personal' AND m.bought_on >= date('now', 'start of year')) AS invested_year,
+            (SELECT COUNT(*) FROM projects
+               WHERE project_type = 'personal' AND created_at >= date('now', 'start of year')) AS projects_year
+        `),
+        // Personal: share of logged time (last 90 days)
+        query(`
+          SELECT
+            COALESCE(SUM(CASE WHEN p.project_type = 'personal' THEN tl.hours END), 0) AS personal,
+            COALESCE(SUM(tl.hours), 0) AS total
+          FROM time_logs tl
+          LEFT JOIN projects p ON p.id = tl.project_id
+          WHERE tl.date >= date('now', '-90 days')
+        `),
+        // Personal: hours split (personal / commission / admin) per month — last 6 months
+        query(`
+          SELECT strftime('%Y-%m', tl.date) AS month,
+                 COALESCE(SUM(CASE WHEN p.project_type = 'personal'   THEN tl.hours END), 0) AS personal,
+                 COALESCE(SUM(CASE WHEN p.project_type = 'commission' THEN tl.hours END), 0) AS commission,
+                 COALESCE(SUM(CASE WHEN p.id IS NULL                  THEN tl.hours END), 0) AS admin
+          FROM time_logs tl
+          LEFT JOIN projects p ON p.id = tl.project_id
+          WHERE tl.date >= date('now', '-6 months', 'start of month')
+          GROUP BY month
+          ORDER BY month
+        `),
+        // Personal: effort per content type (all-time)
+        query(`
+          SELECT p.personal_category AS cat,
+                 COUNT(DISTINCT p.id) AS projects,
+                 COALESCE(SUM(tl.hours), 0) AS hours
+          FROM projects p
+          LEFT JOIN time_logs tl ON tl.project_id = p.id
+          WHERE p.project_type = 'personal'
+          GROUP BY p.personal_category
+        `),
+        // Personal: most recently worked projects
+        query(`
+          SELECT p.id, p.title, p.personal_category AS cat, p.planned_end,
+                 COALESCE(SUM(tl.hours), 0) AS hours,
+                 MAX(tl.date) AS last_log,
+                 COALESCE((SELECT SUM(amount_cents) FROM materials WHERE project_id = p.id), 0) AS material
+          FROM projects p
+          LEFT JOIN time_logs tl ON tl.project_id = p.id
+          WHERE p.project_type = 'personal'
+          GROUP BY p.id
+          ORDER BY (MAX(tl.date) IS NULL), MAX(tl.date) DESC, p.created_at DESC
+          LIMIT 6
+        `),
       ]);
 
     setMonthCash(mw[0] ?? null);
     setMonthAvg(mavg[0] ?? null);
     setMonthHours(mh[0]?.hours ?? 0);
+    setMonthMaterials(matMonth[0]?.spent ?? 0);
     setOverview(ov[0] ?? null);
     setByCategory(cats);
     setBySubtype(subs);
     setTopClients(cls);
     setClientSplit(split[0] ?? null);
     setWeeklyHours(wh);
-    setPipeline(pip[0] ?? null);
-    setPersonalThisMonth(pmth);
+    setUnpaid(pip[0] ?? null);
     setPersonalTrend(ptrend);
-    setYtSnaps(ytq);
-    setIgSnaps(igq);
-    setTtSnaps(ttq);
+    setPersonalStats(pstats[0] ?? null);
+    setPersonalShare(pshare[0] ?? null);
+    setTimeSplit(tsplit);
+    setPersonalEffort(peffort);
+    setActivePersonal(pactive);
     setMonthlyShipped(msh);
     setMonthlyCash(mca);
     setMonthlyHours(mho);
@@ -425,8 +426,10 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
   const now = new Date();
   const monthLabel = `${MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`;
   const cashReceived = monthCash?.received ?? 0;
+  const materialSpent = monthMaterials ?? 0;
+  const netEarned    = cashReceived - materialSpent;
   const avgReceived  = monthAvg?.avg_received ?? 0;
-  const trend = avgReceived > 0 ? trendArrow(cashReceived, avgReceived) : null;
+  const trend = avgReceived > 0 ? trendArrow(netEarned, avgReceived) : null;
 
   // Personal trend data processing
   const trendMonths = [...new Set(personalTrend.map(r => r.month))].sort();
@@ -436,6 +439,22 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
     trendByCat[r.cat][r.month] = r.count;
   }
   const activeTrendCats = Object.keys(trendByCat).sort();
+
+  // Personal: derived figures for the headline + time-split chart
+  const sharePct = personalShare && personalShare.total > 0
+    ? Math.round((personalShare.personal / personalShare.total) * 100)
+    : null;
+  const splitMonths = lastMonths(6);
+  const splitByMonth = Object.fromEntries(timeSplit.map(r => [r.month, r]));
+  const maxSplitHours = Math.max(
+    ...splitMonths.map(m => {
+      const r = splitByMonth[m];
+      return r ? r.personal + r.commission + r.admin : 0;
+    }), 1
+  );
+  const hasPersonalData = (personalStats?.hours_year ?? 0) > 0
+    || (personalStats?.projects_year ?? 0) > 0
+    || activePersonal.length > 0;
 
   // History: merge monthly aggregates onto a fixed 12-month axis
   const histMonths = lastMonths(12);
@@ -483,10 +502,10 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
         <div className="month-wage-card">
           <div className="month-wage-left">
             <div className="month-wage-label">{monthLabel}</div>
-            <div className="month-wage-value">{formatEuro(cashReceived)}</div>
+            <div className="month-wage-value">{formatEuro(netEarned)}</div>
             <div className="month-wage-sub">
-              {(monthCash?.count ?? 0) > 0
-                ? `Payments from ${monthCash.count} commission${monthCash.count !== 1 ? "s" : ""}`
+              {cashReceived > 0 || materialSpent > 0
+                ? `${formatEuro(cashReceived)} in${materialSpent > 0 ? ` − ${formatEuro(materialSpent)} materials` : ""}`
                 : "No payments recorded this month"}
               {monthHours > 0 && ` · ${monthHours}h worked`}
             </div>
@@ -535,11 +554,11 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
               : "Log time on commissions to see this"}
           />
           <StatCard
-            label="Active pipeline"
-            value={pipeline ? formatEuro(pipeline.value) : "—"}
-            note={pipeline?.count > 0
-              ? `${pipeline.count} commission${pipeline.count !== 1 ? "s" : ""} in progress`
-              : "No open commissions"}
+            label="Unpaid"
+            value={unpaid ? formatEuro(unpaid.value) : "—"}
+            note={unpaid?.count > 0
+              ? `${unpaid.count} commission${unpaid.count !== 1 ? "s" : ""} awaiting payment`
+              : "All commissions paid up"}
           />
         </div>
 
@@ -807,162 +826,163 @@ export default function Dashboard({ socialConfig, socialErrors, onRefreshSocial 
 
       {/* ──────────────── PERSONAL TAB ──────────────── */}
       {activeTab === "personal" && <>
-        {/* This month summary */}
-        <DashSection title="This Month" hint={monthLabel}>
-          {personalThisMonth.length === 0 ? (
-            <Empty msg="No personal projects created this month yet." />
-          ) : (
+        {!hasPersonalData ? (
+          <Empty msg="No personal work yet. Create personal projects — videos, reels, competition pieces — and log time on them to see your creative output here." />
+        ) : (
+          <>
+            {/* Headline summary */}
             <div className="stat-grid">
-              {PERSONAL_CAT_META.map(m => {
-                const d = personalThisMonth.find(p => p.cat === m.key);
-                if (!d) return null;
-                return (
-                  <div key={m.key} className="stat-card personal-stat-card"
-                    style={{ borderTop: `3px solid ${m.color}` }}>
-                    <div className="stat-label">{m.label}</div>
-                    <div className="stat-value">{d.count}</div>
-                    <div className="stat-note">
-                      {d.hours > 0 ? `${d.hours}h logged` : "No time logged yet"}
-                    </div>
-                  </div>
-                );
-              }).filter(Boolean)}
+              <StatCard
+                label="Personal hours"
+                value={`${fmtH(personalStats?.hours_month ?? 0)}h`}
+                note={`this month · ${monthLabel}`}
+              />
+              <StatCard
+                label="Personal hours"
+                value={`${fmtH(personalStats?.hours_year ?? 0)}h`}
+                note={`this year · ${personalStats?.projects_year ?? 0} project${(personalStats?.projects_year ?? 0) !== 1 ? "s" : ""} started`}
+              />
+              <StatCard
+                label="Invested this year"
+                value={formatEuro(personalStats?.invested_year ?? 0)}
+                note="Materials on personal projects"
+              />
+              <StatCard
+                label="Share of your time"
+                value={sharePct !== null ? `${sharePct}%` : "—"}
+                note="Personal vs all work · last 90 days"
+              />
             </div>
-          )}
-        </DashSection>
 
-        {/* Content output trend */}
-        <DashSection title="Content Output" hint="Projects created, by month">
-          {activeTrendCats.length === 0 ? (
-            <Empty msg="Create personal projects to see your output trend." />
-          ) : (
-            <div className="personal-trend-wrap">
-              {/* Month labels row */}
-              <div className="personal-trend-row personal-trend-header">
-                <span className="personal-trend-cat-cell" />
-                {trendMonths.map(m => (
-                  <span key={m} className="personal-trend-month-cell">{fmtMonth(m)}</span>
-                ))}
+            {/* Personal vs commission time */}
+            <DashSection title="Where Your Time Goes" hint="Personal vs commission work · last 6 months">
+              <div className="dash-tsplit-legend">
+                <span><i style={{ background: "var(--accent)" }} /> Personal</span>
+                <span><i style={{ background: "var(--espresso, #221B17)" }} /> Commissions</span>
+                <span><i style={{ background: "var(--border-strong, #DDD0C3)" }} /> Admin</span>
               </div>
-              {/* Data rows */}
-              {activeTrendCats.map(cat => {
-                const counts = trendMonths.map(m => trendByCat[cat]?.[m] ?? 0);
-                const maxCount = Math.max(...counts, 1);
-                const color = personalColor(cat);
-                return (
-                  <div key={cat} className="personal-trend-row">
-                    <span className="personal-trend-cat-cell" style={{ color }}>
-                      {personalLabel(cat)}
-                    </span>
-                    {trendMonths.map((m, i) => (
-                      <div key={m} className="personal-trend-month-cell">
-                        <div className="personal-trend-bar-wrap">
-                          <div
-                            className="personal-trend-bar"
-                            style={{
-                              height: `${Math.max(4, (counts[i] / maxCount) * 48)}px`,
-                              background: color,
-                              opacity: counts[i] === 0 ? 0.12 : 1,
-                            }}
-                          />
-                        </div>
-                        <span className="personal-trend-num">
-                          {counts[i] > 0 ? counts[i] : ""}
-                        </span>
+              <div className="dash-tsplit">
+                {splitMonths.map(m => {
+                  const r = splitByMonth[m] || { personal: 0, commission: 0, admin: 0 };
+                  const total = r.personal + r.commission + r.admin;
+                  return (
+                    <div key={m} className="dash-tsplit-row">
+                      <span className="dash-tsplit-lbl">{fmtMonth(m)}</span>
+                      <div className="dash-tsplit-track">
+                        {total > 0 && <>
+                          <div style={{ width: `${(r.commission / maxSplitHours) * 100}%`, background: "var(--espresso, #221B17)" }} title={`${fmtH(r.commission)}h commissions`} />
+                          <div style={{ width: `${(r.personal   / maxSplitHours) * 100}%`, background: "var(--accent)" }}            title={`${fmtH(r.personal)}h personal`} />
+                          <div style={{ width: `${(r.admin      / maxSplitHours) * 100}%`, background: "var(--border-strong, #DDD0C3)" }} title={`${fmtH(r.admin)}h admin`} />
+                        </>}
                       </div>
+                      <span className="dash-tsplit-val">{fmtH(r.personal)}h</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </DashSection>
+
+            {/* Content output trend */}
+            <DashSection title="Content Output" hint="Projects created, by month">
+              {activeTrendCats.length === 0 ? (
+                <Empty msg="Create personal projects to see your output trend." />
+              ) : (
+                <div className="personal-trend-wrap">
+                  {/* Month labels row */}
+                  <div className="personal-trend-row personal-trend-header">
+                    <span className="personal-trend-cat-cell" />
+                    {trendMonths.map(m => (
+                      <span key={m} className="personal-trend-month-cell">{fmtMonth(m)}</span>
                     ))}
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </DashSection>
+                  {/* Data rows */}
+                  {activeTrendCats.map(cat => {
+                    const counts = trendMonths.map(m => trendByCat[cat]?.[m] ?? 0);
+                    const maxCount = Math.max(...counts, 1);
+                    const color = personalColor(cat);
+                    return (
+                      <div key={cat} className="personal-trend-row">
+                        <span className="personal-trend-cat-cell" style={{ color }}>
+                          {personalLabel(cat)}
+                        </span>
+                        {trendMonths.map((m, i) => (
+                          <div key={m} className="personal-trend-month-cell">
+                            <div className="personal-trend-bar-wrap">
+                              <div
+                                className="personal-trend-bar"
+                                style={{
+                                  height: `${Math.max(4, (counts[i] / maxCount) * 48)}px`,
+                                  background: color,
+                                  opacity: counts[i] === 0 ? 0.12 : 1,
+                                }}
+                              />
+                            </div>
+                            <span className="personal-trend-num">
+                              {counts[i] > 0 ? counts[i] : ""}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </DashSection>
 
-        {/* Hours by category */}
-        {personalThisMonth.some(p => p.hours > 0) && (
-          <DashSection title="Hours This Month" hint="Per project type">
-            <div className="dash-cat-list">
-              {personalThisMonth.filter(p => p.hours > 0).map(p => {
-                const maxH = Math.max(...personalThisMonth.map(x => x.hours), 1);
-                return (
-                  <div key={p.cat} className="dash-cat-row">
-                    <div className="dash-cat-head">
+            {/* Effort per content type */}
+            <DashSection title="Effort by Type" hint="Average time per project · all-time">
+              <div className="dash-cat-cards">
+                {personalEffort.filter(e => e.projects > 0)
+                  .sort((a, b) => b.hours - a.hours)
+                  .map(e => (
+                    <div key={e.cat} className="dash-round-card">
+                      <div className="dash-round-head">
+                        <span className="personal-badge" style={{ background: personalColor(e.cat) }}>
+                          {personalLabel(e.cat)}
+                        </span>
+                        <span className="dash-round-count">{e.projects} project{e.projects !== 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="dash-round-value">{fmtH(e.hours / e.projects)}h</div>
+                      <div className="dash-round-label">average per project</div>
+                      <div className="dash-round-foot">
+                        <div className="dash-round-stat">
+                          <span className="dash-round-stat-val">{fmtH(e.hours)}h</span>
+                          <span className="dash-round-stat-lbl">total logged</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </DashSection>
+
+            {/* Recently worked */}
+            <DashSection title="Recently Worked" hint="Your latest personal projects">
+              {activePersonal.length === 0 ? (
+                <Empty msg="No personal projects yet." />
+              ) : (
+                <div className="dash-client-list">
+                  {activePersonal.map(p => (
+                    <div key={p.id} className="dash-client-row">
                       <span className="personal-badge" style={{ background: personalColor(p.cat) }}>
                         {personalLabel(p.cat)}
                       </span>
-                      <span className="dash-cat-count">{p.count} project{p.count !== 1 ? "s" : ""}</span>
-                      <span className="dash-cat-stats">{p.hours}h total</span>
-                    </div>
-                    <div className="dash-cat-bars">
-                      <div className="dash-cat-bar-row">
-                        <span className="dash-bar-lbl">Hours</span>
-                        <HBar value={p.hours} max={maxH} color={personalColor(p.cat)} />
-                        <span className="dash-bar-rval">{p.hours}h</span>
+                      <div className="dash-client-info">
+                        <span className="dash-client-name">{p.title}</span>
+                        <span className="dash-client-meta">
+                          {p.last_log ? `last worked ${fmtWeek(p.last_log)}` : "no time logged yet"}
+                          {p.material > 0 ? ` · ${formatEuro(p.material)} materials` : ""}
+                        </span>
+                      </div>
+                      <div className="dash-client-right">
+                        <span className="dash-client-val">{fmtH(p.hours)}h</span>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          </DashSection>
-        )}
-
-        {/* Social Media */}
-        <DashSection
-          title="Social Media"
-          hint={
-            <button className="btn-ghost sm" style={{ fontSize: "0.75rem", padding: "2px 10px" }}
-              onClick={onRefreshSocial}>
-              Refresh
-            </button>
-          }
-        >
-          <div className="social-dash-row">
-            {SOCIAL_PLATFORMS.map(p => {
-              const snaps = p.id === "youtube" ? ytSnaps
-                          : p.id === "instagram" ? igSnaps : ttSnaps;
-              const latest    = socialLatest(snaps);
-              const dailyG    = socialGrowth(snaps, 1);
-              const weekG     = socialGrowth(snaps, 7);
-              const configured = p.id === "youtube"   ? !!socialConfig?.yt_api_key
-                               : p.id === "instagram" ? !!(socialConfig?.ig_access_token && socialConfig?.ig_user_id)
-                               : true;
-              return (
-                <div key={p.id} className="social-dash-card">
-                  <div className="social-dash-name" style={{ color: p.color }}>{p.label}</div>
-                  {latest !== null ? (
-                    <>
-                      <div className="social-dash-count">{latest.toLocaleString("en-GB")}</div>
-                      <div className="social-dash-metric">{p.metric}</div>
-                      <div className="social-dash-growths">
-                        {dailyG !== null
-                          ? <span className={dailyG >= 0 ? "positive" : "negative"}>{dailyG >= 0 ? "+" : ""}{dailyG} today</span>
-                          : <span className="muted">— today</span>
-                        }
-                        {weekG !== null && (
-                          <span className="muted"> · {weekG >= 0 ? "+" : ""}{weekG} this week</span>
-                        )}
-                      </div>
-                      <MiniChart snapshots={snaps} color={p.color} />
-                    </>
-                  ) : (
-                    <div className="social-dash-empty">
-                      {configured ? "No data yet" : "Not set up — see Settings"}
-                    </div>
-                  )}
-                  {socialErrors?.[p.id] && (
-                    <div className="social-dash-error">⚠ {socialErrors[p.id]}</div>
-                  )}
+                  ))}
                 </div>
-              );
-            })}
-          </div>
-          {!socialConfig?.yt_api_key && !socialConfig?.ig_access_token && (
-            <p style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: 10, fontStyle: "italic" }}>
-              Connect YouTube and Instagram in Settings to see live data. TikTok can be updated manually.
-            </p>
-          )}
-        </DashSection>
+              )}
+            </DashSection>
+          </>
+        )}
       </>}
     </div>
   );

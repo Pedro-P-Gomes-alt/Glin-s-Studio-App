@@ -23,6 +23,7 @@ db.exec(`
   DELETE FROM social_snapshots;
   DELETE FROM ig_media;
   DELETE FROM yt_videos;
+  DELETE FROM materials;
   DELETE FROM payments;
   DELETE FROM time_logs;
   DELETE FROM events;
@@ -31,6 +32,10 @@ db.exec(`
   DELETE FROM quotes;
   DELETE FROM categories;
 `);
+// Optional tables (present after later migrations) — clear if they exist.
+for (const t of ["subtasks", "project_details", "project_measurements", "project_images", "reminders"]) {
+  try { db.exec(`DELETE FROM ${t};`); } catch { /* table not present */ }
+}
 
 // ─── 2. CATEGORIES ─────────────────────────────────────────────────────────
 // Columns: id, category, subtype
@@ -288,13 +293,144 @@ db.transaction(() => {
     }
   }
   // Unbilled admin days
-  for (const day of workdays("2024-01-08","2025-06-17")) {
+  for (const day of workdays("2024-01-08","2026-06-19")) {
     if (!loggedDays.has(day) && Math.random() < 0.28) {
       insLog.run(null, day, rand(1,3), pick(adminDescs));
       loggedDays.add(day);
     }
   }
 })();
+
+// ─── 6b. CONTINUATION: Aug 2025 → Jun 2026 (so dashboards reach "today") ────
+// Today is 2026-06-20. The hand-authored data above ends mid-2025; this block
+// fills the gap up to the present so the relative dashboard queries (this month,
+// last 3 / 12 months, last 30 / 70 days) have data.
+console.log("Generating continuation (Aug 2025 → Jun 2026)…");
+
+const TODAY = "2026-06-20";
+const CLIENT_NAMES = { 1:"Sara",2:"Mariana",3:"Ana",4:"Joao",5:"Beatriz",
+                       6:"Catarina",7:"Laura",8:"Ines",9:"Rita",10:"Marta" };
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const addDaysStr = (s, n) => { const d = new Date(s + "T00:00:00"); d.setDate(d.getDate() + n); return ymd(d); };
+const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+const insProj = db.prepare(`
+  INSERT INTO projects
+    (id, client_id, category_id, title, planned_start, planned_end,
+     material_cost_cents, sale_price_cents, shipped, delivered, shipped_at,
+     project_type, personal_category, created_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+`);
+
+let nextId = 48;
+
+// Finalise the four projects that were still "in progress" in the old data —
+// a year has passed, so they have long since shipped & delivered.
+db.transaction(() => {
+  const upd = db.prepare(`UPDATE projects SET shipped=1, delivered=1, shipped_at=? WHERE id=?`);
+  upd.run("2025-06-26", 38); insPayment.run(38, 4000,  "2025-06-26", "final");
+  upd.run("2025-07-12", 39); insPayment.run(39, 22750, "2025-07-12", "final");
+  upd.run("2025-07-26", 40); insPayment.run(40, 13000, "2025-07-01", "advance"); insPayment.run(40, 13000, "2025-07-26", "final");
+  upd.run("2025-08-06", 41); insPayment.run(41, 16250, "2025-07-10", "advance"); insPayment.run(41, 16250, "2025-08-06", "final");
+  // 40 & 41 had no time logs in the old data — add some.
+  for (const [pid, s, e, catId] of [[40,"2025-07-01","2025-07-25",4],[41,"2025-07-10","2025-08-05",5]]) {
+    for (const day of workdays(s, e)) {
+      if (Math.random() < 0.82) insLog.run(pid, day, catId===4 ? rand(3,7) : rand(4,8), descForCat(catId));
+    }
+  }
+})();
+
+// Per-category generation parameters (match the look of the hand-authored data).
+const catSale  = { 1:[40000,55000], 2:[68000,85000], 3:[9500,12000], 4:[14000,27000],
+                   5:[30000,40000], 6:[41000,47000], 7:[8000,9500] };
+const catDur   = { 1:21, 2:35, 3:14, 4:21, 5:22, 6:25, 7:18 };
+const catWord  = { 1:["Dress","Gown","Ball Gown"], 2:["Full Costume","Knight Costume","Armor Set"],
+                   3:["Wig","Styled Wig"], 4:["Sword Prop","Shield Prop","Axe Prop"],
+                   5:["Roller Dress","Competition Dress"], 6:["Artistic Dress"], 7:["Accessories Set"] };
+const catClients = { 1:[1,6,7,9], 2:[6,7,2], 3:[1,2,6], 4:[4,7], 5:[3,5,10], 6:[8,5], 7:[5,8] };
+const ADJ = ["Moonlight","Crimson","Azure","Golden","Starlit","Velvet","Frost","Ember",
+             "Twilight","Ivory","Scarlet","Jade","Aurora","Obsidian"];
+const round100 = (n) => Math.round(n / 100) * 100;
+
+// [year, month(0-based), [categoryIds…]] — a few commissions per month.
+const plan = [
+  [2025, 7, [1,5,3]],     [2025, 8, [6,4,1]],     [2025, 9, [2,5,7]],
+  [2025,10, [1,3,5,4]],   [2025,11, [2,5,1]],     [2026, 0, [1,5,3]],
+  [2026, 1, [6,4,1]],     [2026, 2, [2,5,1,7]],   [2026, 3, [1,3,5]],
+  [2026, 4, [6,5,1,4]],   [2026, 5, [1,5,2,3]],   // June 2026 = current month
+];
+
+db.transaction(() => {
+  for (const [yr, mo, cats] of plan) {
+    const startDays = [4, 13, 21, 26];
+    cats.forEach((catId, i) => {
+      const start = `${yr}-${String(mo+1).padStart(2,"0")}-${String(startDays[i] ?? (4 + i*7)).padStart(2,"0")}`;
+      const end   = addDaysStr(start, catDur[catId]);
+      const [smin, smax] = catSale[catId];
+      const sale     = round100(rand(smin, smax));
+      const material = round100(sale * (0.14 + Math.random() * 0.06));
+      const client   = pick(catClients[catId]);
+      const title    = `${pick(ADJ)} ${pick(catWord[catId])} — ${CLIENT_NAMES[client]}`;
+
+      const shipped   = cmp(end, TODAY) <= 0;
+      const shippedAt = shipped ? addDaysStr(end, 1) : null;
+      const delivered = shipped && cmp(shippedAt, addDaysStr(TODAY, -5)) < 0 ? 1 : 0;
+      const id = nextId++;
+      insProj.run(id, client, catId, title, start, end, material, sale,
+                  shipped ? 1 : 0, delivered, shippedAt, "commission", null, start);
+
+      const advance = round100(sale * 0.5);
+      insPayment.run(id, advance, start, "advance");
+      if (shipped) insPayment.run(id, sale - advance, shippedAt, "final");
+
+      const logEnd = cmp(end, TODAY) <= 0 ? end : TODAY;   // never log into the future
+      for (const day of workdays(start, logEnd)) {
+        if (Math.random() < 0.82) {
+          const h = (catId===3 || catId===7) ? rand(2,4) : catId===4 ? rand(3,7) : rand(4,8);
+          insLog.run(id, day, h, descForCat(catId));
+        }
+      }
+    });
+  }
+})();
+
+// Personal projects for the recent months (feeds the Personal dashboard tab).
+const personalPlan = [
+  ["2025-09-05","2025-09-09","short"],       ["2025-10-10","2025-10-22","video"],
+  ["2025-11-15","2025-11-18","short"],       ["2025-12-01","2025-12-12","video"],
+  ["2026-01-10","2026-01-14","short"],       ["2026-02-05","2026-02-20","competition"],
+  ["2026-03-08","2026-03-12","short"],       ["2026-04-12","2026-04-22","video"],
+  ["2026-05-06","2026-05-09","short"],       ["2026-05-20","2026-05-30","video"],
+  ["2026-06-05","2026-06-09","short"],       ["2026-06-12","2026-06-19","video"],
+];
+const personalTitle = { video:"YouTube — Build Vlog", short:"Short-form — Reel", competition:"Competition Entry Prep" };
+db.transaction(() => {
+  for (const [s, e, cat] of personalPlan) {
+    const material = cat === "competition" ? rand(8000,14000) : cat === "video" ? rand(0,1200) : 0;
+    const id = nextId++;
+    insProj.run(id, null, null, personalTitle[cat], s, e, material, null, 0, 0, null, "personal", cat, s);
+    const logEnd = cmp(e, TODAY) <= 0 ? e : TODAY;
+    for (const day of workdays(s, logEnd)) {
+      if (Math.random() < 0.8) {
+        const h = cat === "competition" ? rand(3,7) : rand(2,5);
+        insLog.run(id, day, h, pick(personalDescs[cat] || adminDescs));
+      }
+    }
+  }
+})();
+
+// Backfill the materials table from each project's material_cost_cents. The app
+// reads material spend from `materials` (migration 012), not from the column, so
+// without this profit == revenue and the net-wage card shows €0 of materials.
+// bought_on = planned_start → material spend lands in the month work began.
+console.log("Backfilling material line items…");
+db.exec(`
+  INSERT INTO materials (project_id, description, amount_cents, bought_on)
+  SELECT id, 'Materials', material_cost_cents,
+         COALESCE(date(planned_start), date(created_at))
+  FROM projects
+  WHERE material_cost_cents > 0;
+`);
 
 // ─── 7. EVENTS ─────────────────────────────────────────────────────────────
 // Columns: id, title, event_type, start_date, end_date, image_path, notes
@@ -306,13 +442,20 @@ db.exec(`
     ('Christmas Break',       'vacation',   '2024-12-24','2025-01-05'),
     ('Iberanime Porto 2025',  'convention', '2025-02-22','2025-02-23'),
     ('Roller Skating Contest','contest',    '2025-04-28','2025-04-28'),
-    ('Animanga Lisboa 2025',  'convention', '2025-05-17','2025-05-18');
+    ('Animanga Lisboa 2025',  'convention', '2025-05-17','2025-05-18'),
+    ('Summer Holiday',        'vacation',   '2025-08-04','2025-08-15'),
+    ('Iberanime Porto 2025',  'convention', '2025-10-04','2025-10-05'),
+    ('Christmas Break',       'vacation',   '2025-12-24','2026-01-04'),
+    ('Iberanime Porto 2026',  'convention', '2026-02-21','2026-02-22'),
+    ('Roller Skating Contest','contest',    '2026-04-26','2026-04-26'),
+    ('Animanga Lisboa 2026',  'convention', '2026-05-16','2026-05-17'),
+    ('Summer Holiday',        'vacation',   '2026-06-29','2026-07-10');
 `);
 
 // ─── 8. SOCIAL SNAPSHOTS ────────────────────────────────────────────────────
 console.log("Inserting social snapshots…");
 function dateStr(daysAgo) {
-  const d = new Date("2025-06-18T00:00:00");
+  const d = new Date("2026-06-19T00:00:00");
   d.setDate(d.getDate() - daysAgo);
   return d.toISOString().split("T")[0];
 }
@@ -334,32 +477,32 @@ db.transaction(() => {
 console.log("Inserting YouTube videos…");
 db.exec(`
   INSERT INTO yt_videos (video_id, title, published_at, view_count, like_count, comment_count) VALUES
-    ('ytv001','Full Cosplay Dress Build - From Zero to Finished!','2025-05-28T10:00:00Z',4820,312,47),
-    ('ytv002','Wig Styling Tutorial - Curly Fantasy Look',        '2025-05-10T10:00:00Z',2940,189,28),
-    ('ytv003','How I Sew Competition Roller Skating Dresses',     '2025-04-22T10:00:00Z',6110,420,63),
-    ('ytv004','My Sewing Room Tour + Setup 2025',                 '2025-03-30T10:00:00Z',8340,670,91),
-    ('ytv005','Cosplay Material Haul - What I Bought This Month', '2025-03-01T10:00:00Z',3250,204,31),
-    ('ytv006','Prop Making 101 - Foam Sword Start to Finish',     '2025-02-10T10:00:00Z',5780,390,55),
-    ('ytv007','Speed Sewing a Dress in 24 Hours',                 '2025-01-18T10:00:00Z',9420,810,104),
-    ('ytv008','2024 Year in Review - All My Projects',            '2024-12-28T10:00:00Z',11200,930,138);
+    ('ytv001','Full Cosplay Dress Build - From Zero to Finished!','2026-05-28T10:00:00Z',4820,312,47),
+    ('ytv002','Wig Styling Tutorial - Curly Fantasy Look',        '2026-05-10T10:00:00Z',2940,189,28),
+    ('ytv003','How I Sew Competition Roller Skating Dresses',     '2026-04-22T10:00:00Z',6110,420,63),
+    ('ytv004','My Sewing Room Tour + Setup 2026',                 '2026-03-30T10:00:00Z',8340,670,91),
+    ('ytv005','Cosplay Material Haul - What I Bought This Month', '2026-03-01T10:00:00Z',3250,204,31),
+    ('ytv006','Prop Making 101 - Foam Sword Start to Finish',     '2026-02-10T10:00:00Z',5780,390,55),
+    ('ytv007','Speed Sewing a Dress in 24 Hours',                 '2026-01-18T10:00:00Z',9420,810,104),
+    ('ytv008','2025 Year in Review - All My Projects',            '2025-12-28T10:00:00Z',11200,930,138);
 `);
 
 // ─── 10. INSTAGRAM MEDIA ────────────────────────────────────────────────────
 console.log("Inserting Instagram media…");
 db.exec(`
   INSERT INTO ig_media (media_id, media_type, caption, timestamp, like_count, comments_count) VALUES
-    ('ig001','IMAGE','Just finished this moonlit gown - so happy with how the hand-embroidery came out! #cosplay #sewing #handmade','2025-06-14T12:00:00Z',624,38),
-    ('ig002','VIDEO','Speed sewing a rhinestone roller dress. Full process in 60 seconds! #rollerdress #skating','2025-06-08T18:00:00Z',891,52),
-    ('ig003','IMAGE','Crystal accessories set for @bea.on.wheels — in progress #accessories #handmade','2025-06-05T14:00:00Z',412,22),
-    ('ig004','IMAGE','Celestial cosplay dress — delivered! This took 3.5 weeks and every hour was worth it','2025-06-04T10:00:00Z',780,45),
-    ('ig005','VIDEO','Pattern drafting time-lapse #sewingprocess #patternmaking','2025-05-27T16:00:00Z',543,30),
-    ('ig006','IMAGE','Spring roller dress out the door, competition season is here! #rollerdress #skating','2025-05-27T09:00:00Z',698,41),
-    ('ig007','IMAGE','New material haul - so many good finds this month #fabrichaul','2025-05-20T14:00:00Z',360,18),
-    ('ig008','IMAGE','My workspace right now — organised chaos #sewingstudio','2025-05-12T11:00:00Z',445,27),
-    ('ig009','VIDEO','How I ventilate a wig — step by step #wigmaking #tutorial','2025-05-10T17:00:00Z',612,35),
-    ('ig010','IMAGE','Spring cosplay dress completed! Client was so happy #cosplay #sewingblogger','2025-04-19T12:00:00Z',720,44),
-    ('ig011','IMAGE','Competition entry almost ready for Animanga Lisboa! #cosplaycompetition','2025-04-15T10:00:00Z',834,58),
-    ('ig012','IMAGE','Teal wig looking absolutely stunning if I do say so myself #wigmaker','2025-04-03T15:00:00Z',509,29);
+    ('ig001','IMAGE','Just finished this moonlit gown - so happy with how the hand-embroidery came out! #cosplay #sewing #handmade','2026-06-14T12:00:00Z',624,38),
+    ('ig002','VIDEO','Speed sewing a rhinestone roller dress. Full process in 60 seconds! #rollerdress #skating','2026-06-08T18:00:00Z',891,52),
+    ('ig003','IMAGE','Crystal accessories set for @bea.on.wheels — in progress #accessories #handmade','2026-06-05T14:00:00Z',412,22),
+    ('ig004','IMAGE','Celestial cosplay dress — delivered! This took 3.5 weeks and every hour was worth it','2026-06-04T10:00:00Z',780,45),
+    ('ig005','VIDEO','Pattern drafting time-lapse #sewingprocess #patternmaking','2026-05-27T16:00:00Z',543,30),
+    ('ig006','IMAGE','Spring roller dress out the door, competition season is here! #rollerdress #skating','2026-05-27T09:00:00Z',698,41),
+    ('ig007','IMAGE','New material haul - so many good finds this month #fabrichaul','2026-05-20T14:00:00Z',360,18),
+    ('ig008','IMAGE','My workspace right now — organised chaos #sewingstudio','2026-05-12T11:00:00Z',445,27),
+    ('ig009','VIDEO','How I ventilate a wig — step by step #wigmaking #tutorial','2026-05-10T17:00:00Z',612,35),
+    ('ig010','IMAGE','Spring cosplay dress completed! Client was so happy #cosplay #sewingblogger','2026-04-19T12:00:00Z',720,44),
+    ('ig011','IMAGE','Competition entry almost ready for Animanga Lisboa! #cosplaycompetition','2026-04-15T10:00:00Z',834,58),
+    ('ig012','IMAGE','Teal wig looking absolutely stunning if I do say so myself #wigmaker','2026-04-03T15:00:00Z',509,29);
 `);
 
 // ─── 11. QUOTES ─────────────────────────────────────────────────────────────
@@ -369,11 +512,11 @@ const insQuote = db.prepare(
   `INSERT INTO quotes (source_id, submitted_at, data, seen, status) VALUES (?, ?, ?, 0, 'pending')`
 );
 db.transaction(() => {
-  insQuote.run("FORM-2025-001","2025-06-16T09:14:00Z",
+  insQuote.run("FORM-2026-001","2026-06-16T09:14:00Z",
     JSON.stringify({name:"Francisca Alves",email:"francisca@example.com",project_type:"Cosplay Dress",description:"Looking for a full Elsa (Frozen) dress, movie accurate. Attending Iberanime in October."}));
-  insQuote.run("FORM-2025-002","2025-06-17T14:32:00Z",
-    JSON.stringify({name:"Leonor Pinto",email:"leonor.p@example.com",project_type:"Roller Dress",description:"Need a competition roller dress for January 2026. Purple and gold theme, rhinestones."}));
-  insQuote.run("FORM-2025-003","2025-06-18T08:55:00Z",
+  insQuote.run("FORM-2026-002","2026-06-17T14:32:00Z",
+    JSON.stringify({name:"Leonor Pinto",email:"leonor.p@example.com",project_type:"Roller Dress",description:"Need a competition roller dress for January 2027. Purple and gold theme, rhinestones."}));
+  insQuote.run("FORM-2026-003","2026-06-19T08:55:00Z",
     JSON.stringify({name:"Tomas Guerreiro",email:"tomas.g@example.com",project_type:"Prop",description:"Looking to commission a Keyblade (Kingdom Hearts) — about 1m long, foam/worbla okay."}));
 })();
 
@@ -383,10 +526,11 @@ db.close();
 console.log("\n Done!");
 console.log("   10 clients");
 console.log("   7 categories");
-console.log("   47 projects (41 commissions + 6 personal)");
+console.log("   ~96 projects (commissions + personal), Jan 2024 → Jun 2026");
 console.log("   Payments for all commissions (advance + final)");
-console.log("   Daily time logs Jan 2024 to Jun 2025");
-console.log("   6 calendar events (vacations, conventions, contest)");
-console.log("   30 days of social snapshots (YouTube, Instagram, TikTok)");
-console.log("   8 YouTube videos + 12 Instagram posts");
-console.log("   3 unread client quote requests");
+console.log("   Material line items backfilled for every project");
+console.log("   Daily time logs Jan 2024 → 19 Jun 2026 (a few open jobs in progress now)");
+console.log("   13 calendar events (vacations, conventions, contests)");
+console.log("   30 days of social snapshots ending 19 Jun 2026");
+console.log("   8 YouTube videos + 12 Instagram posts (recent)");
+console.log("   3 unread client quote requests (Jun 2026)");

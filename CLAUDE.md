@@ -1,4 +1,95 @@
-# CLAUDE.md — Glin's Studio App
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+---
+
+# Developer guide
+
+> The product brief below ("Glin's Studio App") is the *intent*. This section is how the code
+> actually works today. Where they disagree, the code wins — see "Drift from the brief".
+
+## Commands
+
+Run from the repo root.
+
+- `npm install` — install JS deps. (Rust deps build on first Tauri run.)
+- `npm run tauri dev` — **the real way to run the app.** Boots Vite + the Tauri Rust shell with
+  the SQLite plugin. `npm run dev` alone serves the frontend in a browser, where `@tauri-apps/*`
+  calls (DB, fs) fail — only useful for pure-CSS work.
+- `npm run build` — `vite build` → `dist/` (also runs automatically before a Tauri bundle).
+- `npm run tauri build` — produce the Windows `.msi` installer locally.
+- `node scripts/seed.cjs` — wipe all user data and load a year of demo data. Writes **directly to
+  the live DB** at `%APPDATA%/com.glins.studio/glins_studio.db` via `better-sqlite3` (a dev-only,
+  untracked dep — `npm i better-sqlite3` first). Close the app before running.
+
+There are **no tests, linter, or formatter** configured. Don't invent commands for them.
+
+### Release / auto-update
+Pushing a tag `v*` triggers [.github/workflows/release.yml](.github/workflows/release.yml):
+`tauri-action` builds the signed `.msi`, then a PowerShell step hand-builds `latest.json` (tauri-action
+doesn't emit it reliably for MSI) and uploads it. The app checks that release's `latest.json` on
+startup ([src/App.jsx](src/App.jsx) `check()`). **Bump `version` in both [package.json](package.json) and
+[src-tauri/tauri.conf.json](src-tauri/tauri.conf.json) before tagging.** Signing keys live in the
+`TAURI_SIGNING_*` GitHub secrets; `createUpdaterArtifacts: true` must stay on or no `latest.json` is built.
+
+## Architecture in practice
+
+- **Frontend → DB is direct SQL.** There is no Rust business logic. The Rust side
+  ([src-tauri/src/lib.rs](src-tauri/src/lib.rs)) only registers plugins and the migration list. React
+  calls `query()` / `execute()` from [src/db.js](src/db.js), which wrap `tauri-plugin-sql` against
+  the single SQLite connection `sqlite:glins_studio.db`. **Write SQL strings directly in the page
+  components** — that is the established pattern; aggregations belong in the query, not in JS.
+- **Schema lives only in migrations.** [src-tauri/migrations/](src-tauri/migrations/) `NNN_*.sql`,
+  registered in order in `lib.rs`. To change the schema, add the next-numbered file and append a
+  `Migration` entry — never edit an applied migration (users' DBs already ran it). SQLite can't drop
+  columns, so column-reshaping migrations rebuild the table (see `006_personal_payments.sql`).
+- **No central router/state.** [src/App.jsx](src/App.jsx) holds the active page in `useState` and
+  switches on it; each [src/pages/](src/pages/) screen owns its own data loading and reload. Config
+  that isn't business data (font settings, the Quotes Apps Script URL+token, social API keys) lives
+  in **localStorage**, not SQLite.
+- **Images:** [src/utils/images.js](src/utils/images.js) resizes client-side (canvas → JPEG, longest
+  side 1600px) and writes to `<AppData>/images/`; the DB stores the **relative path** only. Display
+  via `imageSrc()` → `convertFileSrc`. The `assetProtocol` scope `$APPDATA/**` in `tauri.conf.json`
+  is what lets the webview load them.
+
+## Conventions (enforced, match them)
+
+- **Money is integer cents**, always. Convert at the edges with [src/utils/money.js](src/utils/money.js)
+  (`eurosToCents`, `formatEuro`, `formatMargin`, `formatEuroPerHour`). Never put euros-as-float in the DB.
+- **Dates are ISO `YYYY-MM-DD` text.** Use [src/utils/dates.js](src/utils/dates.js). Note `today()`/`addDays()`
+  build the string from **local** components on purpose — `toISOString()` shifts the day in non-UTC
+  timezones (this was a fixed bug; don't reintroduce it).
+- **Derived values are computed on read, never stored:** profit = sale − materials; margin = profit/sale;
+  €/h = profit/hours; project hours = `SUM(time_logs.hours)`; project material cost = `SUM(materials.amount_cents)`.
+- **Subtypes are controlled vocabulary** from the `categories` table (cosplay/sports only) — never free-text.
+- **Styling goes through design tokens** in `:root` of [src/App.css](src/App.css). Never hard-code a
+  colour/radius/shadow/spacing a token covers. [DESIGN.md](DESIGN.md) is the source of truth for visuals.
+
+## Drift from the brief (read before trusting the brief on these)
+
+The brief predates several features. Current reality:
+
+- **Board status is NOT "sale price → Done".** [src/pages/Board.jsx](src/pages/Board.jsx) derives columns
+  from activity: **To Do** (no time logged) → **Doing** (logged in last 3 days) → **Pending** (3+ days idle)
+  → **Shipped** (`shipped=1`) → **History** (`delivered=1`). Glin clicks ✓ Delivered / ↩ Returned; the
+  `shipped`/`delivered` flags drive it, not `status_override`.
+- **Materials are line items**, not a single field. The `materials` table (project_id, description,
+  amount_cents, bought_on) is the live source; the old `projects.material_cost_cents` and
+  `subtasks.material_cost_cents` columns still exist but are **no longer read**.
+- **Projects are commission *or* personal** (`projects.project_type`, `personal_category`); personal
+  projects have a nullable `category_id` and use the `payments` table for incremental income.
+- **Beyond the brief's 5 tables:** `subtasks`, `payments`, `materials`, `project_details`,
+  `project_measurements`, `project_images`, `quotes`, plus social (`social_snapshots`, `yt_videos`,
+  `ig_media`). Commission income can be tracked as `payments` rows, and projects carry `estimated_hours`.
+- **Social dashboard exists** ([src/pages/Social.jsx](src/pages/Social.jsx) + the fetch logic in
+  [src/App.jsx](src/App.jsx)): YouTube Data API + Instagram Graph API pulled directly from the webview,
+  snapshotted daily into SQLite. The IG token auto-refreshes its 60-day expiry on fetch.
+- **Backup routine is not built yet.** The brief describes it; no code implements it.
+
+---
+
+# Product brief — Glin's Studio App
 
 Project brief for Claude Code. Read this first every session.
 
@@ -48,13 +139,18 @@ Five tables. The core idea: **one `projects` record is simultaneously a calendar
 - effective €/hour = profit / total logged hours
 - project hours = SUM of linked time_logs
 
-### Board status precedence (the board is a read-only view of the calendar)
-1. Sale price recorded → **Done** (overrides everything).
-2. Else today is within planned_start..planned_end → **Doing**.
-3. Else planned_start is in the future → **To Do**.
-4. Past planned_end with no sale → surface as **overdue / at-risk** (a feature, not a bug). A manual override flag can pin a status if ever needed.
+### Board status (the board is a read-only projection of activity, not the calendar)
+Columns are derived from time-log activity and the ship/deliver flags, in this order
+(see [src/pages/Board.jsx](src/pages/Board.jsx) `getStatus`):
+1. `delivered = 1` → **History** (table below the board).
+2. `shipped = 1` → **Shipped** — finalized, awaiting delivery confirmation.
+3. No time logged yet → **To Do**.
+4. Last time log ≥ 3 days ago → **Pending** (idle, at-risk).
+5. Otherwise (logged within the last 3 days) → **Doing**.
 
-She never drags a card; recording the sale is what marks it done.
+She never drags a card. Logging time moves a project To Do → Doing; the **✓ Delivered** /
+**↩ Returned** buttons toggle the `shipped`/`delivered` flags. (`status_override` exists in the
+schema but is not currently used by the board.)
 
 ## Engineering guardrails (do not deviate)
 
