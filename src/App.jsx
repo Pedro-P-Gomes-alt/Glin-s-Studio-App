@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { getVersion } from "@tauri-apps/api/app";
 import "./App.css";
 import Dashboard from "./pages/Dashboard";
 import Sales from "./pages/Sales";
@@ -26,6 +27,21 @@ const FONT_FAMILY_LABELS = {
 
 const DEFAULT_SETTINGS      = { fontSize: "default", fontFamily: "system" };
 const DEFAULT_QUOTES_CONFIG = { scriptUrl: "", token: "" };
+
+// ── What's new ──────────────────────────────────────────────────────────
+// Shown once after the app updates to a new version. Refresh this list each
+// release so Glin sees what changed. The popup fires whenever the running
+// version differs from the last one she dismissed (stored in localStorage).
+const WHATS_NEW = [
+  { title: "Invoice on every shipped order",
+    body: "Mark an order as shipped and a quick invoice pops up — materials, hours, what you billed for your time, and what was paid." },
+  { title: "Orders must be paid before shipping",
+    body: "If there's still an unpaid balance, the app reminds you to record the payment before it lets you ship." },
+  { title: "Order history moved to Commissions",
+    body: "Finished orders now live behind the “History” button next to “New Order”. Click any order to see its invoice again." },
+  { title: "“Unpaid” instead of “Outstanding”",
+    body: "Clearer wording for money still owed on an order." },
+];
 
 function ls(key, def) {
   try { const r = localStorage.getItem(key); return r ? { ...def, ...JSON.parse(r) } : def; }
@@ -206,6 +222,32 @@ function QuoteAlert({ count, onView, onDismiss }) {
   );
 }
 
+// ── What's-new popup (shown once per new version) ───────────────────────
+function WhatsNewDialog({ version, items, onClose }) {
+  return (
+    <div className="dialog-overlay" onClick={onClose}>
+      <div className="dialog whats-new" onClick={e => e.stopPropagation()}>
+        <div className="dialog-header">
+          <h3 className="dialog-title">What's new{version ? ` · v${version}` : ""}</h3>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <p className="dialog-sub">Here's what changed in this update.</p>
+        <ul className="whats-new-list">
+          {items.map((it, i) => (
+            <li key={i} className="whats-new-item">
+              <div className="whats-new-item-title">{it.title}</div>
+              <div className="whats-new-item-body">{it.body}</div>
+            </li>
+          ))}
+        </ul>
+        <div className="form-actions" style={{ marginTop: 4 }}>
+          <button type="button" className="btn-primary" onClick={onClose}>Got it</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── App ────────────────────────────────────────────────────────────────
 export default function App() {
   const [page, setPage]               = useState("dashboard");
@@ -214,6 +256,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [unseenQuotes, setUnseenQuotes] = useState(0);
   const [toast, setToast]             = useState(null);
+  const [whatsNew, setWhatsNew]       = useState(null); // version string when popup should show
   const quotePollRef = useRef(null);
 
   // Check for app updates once on startup
@@ -225,6 +268,18 @@ export default function App() {
       }
     }).catch(() => {});
   }, []);
+
+  // Show "What's new" once after an update bumps the running version
+  useEffect(() => {
+    getVersion().then(v => {
+      if (localStorage.getItem("glins_seen_version") !== v) setWhatsNew(v);
+    }).catch(() => {});
+  }, []);
+
+  function dismissWhatsNew() {
+    if (whatsNew) localStorage.setItem("glins_seen_version", whatsNew);
+    setWhatsNew(null);
+  }
 
   // Apply font settings
   useEffect(() => {
@@ -315,6 +370,10 @@ export default function App() {
         {page === "clients"     && <Clients />}
         {page === "quotes"      && <Quotes config={quotesConfig} onUnseenChange={setUnseenQuotes} onRefresh={fetchAndStoreQuotes} />}
       </main>
+
+      {whatsNew && (
+        <WhatsNewDialog version={whatsNew} items={WHATS_NEW} onClose={dismissWhatsNew} />
+      )}
 
       {toast && (
         <QuoteAlert

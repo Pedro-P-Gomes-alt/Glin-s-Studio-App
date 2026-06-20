@@ -32,6 +32,9 @@ doesn't emit it reliably for MSI) and uploads it. The app checks that release's 
 startup ([src/App.jsx](src/App.jsx) `check()`). **Bump `version` in both [package.json](package.json) and
 [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json) before tagging.** Signing keys live in the
 `TAURI_SIGNING_*` GitHub secrets; `createUpdaterArtifacts: true` must stay on or no `latest.json` is built.
+Also **refresh the `WHATS_NEW` list in [src/App.jsx](src/App.jsx)** each release — it drives the
+"What's new" popup that fires once when the running version differs from the `glins_seen_version`
+localStorage key.
 
 ## Architecture in practice
 
@@ -72,8 +75,12 @@ The brief predates several features. Current reality:
 
 - **Board status is NOT "sale price → Done".** [src/pages/Board.jsx](src/pages/Board.jsx) derives columns
   from activity: **To Do** (no time logged) → **Doing** (logged in last 3 days) → **Pending** (3+ days idle)
-  → **Shipped** (`shipped=1`) → **History** (`delivered=1`). Glin clicks ✓ Delivered / ↩ Returned; the
-  `shipped`/`delivered` flags drive it, not `status_override`.
+  → **Shipped** (`shipped=1`). Glin clicks ✓ Delivered / ↩ Returned; the `shipped`/`delivered` flags drive
+  it, not `status_override`. `delivered=1` projects drop off the board entirely.
+- **Order history lives on Commissions, not the Board.** [src/pages/Sales.jsx](src/pages/Sales.jsx) has a
+  **History** toggle (next to **+ New Order**, mirroring the Projects archive) listing finalized commissions
+  (`shipped=1 OR delivered=1`); clicking a row opens its `InvoiceDialog`. Marking an order shipped is blocked
+  while any balance is unpaid, and on success shows the same invoice (materials, hours, labour, paid).
 - **Materials are line items**, not a single field. The `materials` table (project_id, description,
   amount_cents, bought_on) is the live source; the old `projects.material_cost_cents` and
   `subtasks.material_cost_cents` columns still exist but are **no longer read**.
@@ -142,7 +149,7 @@ Five tables. The core idea: **one `projects` record is simultaneously a calendar
 ### Board status (the board is a read-only projection of activity, not the calendar)
 Columns are derived from time-log activity and the ship/deliver flags, in this order
 (see [src/pages/Board.jsx](src/pages/Board.jsx) `getStatus`):
-1. `delivered = 1` → **History** (table below the board).
+1. `delivered = 1` → drops off the board (history now lives on the Commissions page — see "Drift").
 2. `shipped = 1` → **Shipped** — finalized, awaiting delivery confirmation.
 3. No time logged yet → **To Do**.
 4. Last time log ≥ 3 days ago → **Pending** (idle, at-risk).

@@ -12,6 +12,69 @@ const PAYMENT_LABELS = {
 
 const CATEGORY_LABEL = { cosplay: "Cosplay", sports: "Sports" };
 const today = () => new Date().toISOString().split("T")[0];
+const fmtHours = h => (h % 1 === 0 ? h : h.toFixed(2));
+
+// ── Invoice dialog (centered) — simple summary after shipping / from history ──
+function InvoiceDialog({ project, onClose }) {
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    Promise.all([
+      query(`SELECT COALESCE(SUM(amount_cents), 0) AS c FROM materials WHERE project_id = ?`, [project.id]),
+      query(`SELECT COALESCE(SUM(amount_cents), 0) AS c FROM payments  WHERE project_id = ?`, [project.id]),
+      query(`SELECT COALESCE(SUM(hours), 0)        AS h FROM time_logs WHERE project_id = ?`, [project.id]),
+    ]).then(([m, p, t]) =>
+      setData({ materialCents: m[0].c, paidCents: p[0].c, hours: t[0].h })
+    );
+  }, [project.id]);
+
+  const saleCents     = project.sale_price_cents ?? 0;
+  const materialCents = data?.materialCents ?? 0;
+  const labourCents   = saleCents - materialCents; // what she billed for her hours
+  const hours         = data?.hours ?? 0;
+  const paidCents     = data?.paidCents ?? 0;
+
+  return (
+    <div className="dialog-overlay" onClick={onClose}>
+      <div className="dialog" onClick={e => e.stopPropagation()}>
+        <div className="dialog-header">
+          <h3 className="dialog-title">Invoice</h3>
+          <button className="btn-icon" onClick={onClose}>✕</button>
+        </div>
+        <p className="dialog-sub">
+          {project.title}{project.client_name ? ` · ${project.client_name}` : ""}
+        </p>
+
+        {!data ? (
+          <p className="dialog-sub" style={{ marginTop: 12 }}>Loading…</p>
+        ) : (
+          <div className="invoice">
+            <div className="invoice-row">
+              <span>Materials</span>
+              <span>{formatEuro(materialCents)}</span>
+            </div>
+            <div className="invoice-row">
+              <span>Labour <span className="muted">({fmtHours(hours)}h)</span></span>
+              <span>{formatEuro(labourCents)}</span>
+            </div>
+            <div className="invoice-row invoice-total">
+              <span>Total billed</span>
+              <span>{formatEuro(saleCents)}</span>
+            </div>
+            <div className="invoice-row">
+              <span>Paid</span>
+              <span className="positive">{formatEuro(paidCents)}</span>
+            </div>
+          </div>
+        )}
+
+        <div className="form-actions" style={{ marginTop: 16 }}>
+          <button type="button" className="btn-primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Record Payment dialog (centered) ────────────────────────────────────
 function PaymentDialog({ commission, onSave, onClose }) {
@@ -46,7 +109,7 @@ function PaymentDialog({ commission, onSave, onClose }) {
         <p className="dialog-sub">{commission.title}</p>
         {outstanding > 0 && (
           <p className="dialog-hint">
-            Outstanding: <strong>{formatEuro(outstanding)}</strong>
+            Unpaid: <strong>{formatEuro(outstanding)}</strong>
             {commission.total_received > 0 && ` of ${formatEuro(commission.sale_price_cents)}`}
           </p>
         )}
@@ -139,8 +202,9 @@ function MaterialDialog({ commission, onSave, onClose }) {
 }
 
 // ── Update Order panel ─────────────────────────────────────────────────
-function FinalizePanel({ sale, categories, onSave, onClose }) {
+function FinalizePanel({ sale, categories, onSave, onShipped, onClose }) {
   const [title, setTitle] = useState(sale.title);
+  const [showUnpaid, setShowUnpaid] = useState(false);
   const [category, setCategory] = useState(sale.category || "cosplay");
   const [subtype, setSubtype] = useState(sale.subtype || "");
   const [plannedStart, setPlannedStart] = useState(sale.planned_start || "");
@@ -194,9 +258,18 @@ function FinalizePanel({ sale, categories, onSave, onClose }) {
 
   async function handleShip(e) {
     e.preventDefault();
+    // Can't ship while money is still owed — make her settle the balance first.
+    if (saleCents - totalReceived > 0) { setShowUnpaid(true); return; }
     setSaving(true);
-    try { await persist(`, shipped = 1, shipped_at = date('now')`); onSave(); }
-    finally { setSaving(false); }
+    try {
+      await persist(`, shipped = 1, shipped_at = date('now')`);
+      onShipped({
+        id: sale.id,
+        title: title.trim(),
+        client_name: sale.client_name,
+        sale_price_cents: saleCents,
+      });
+    } finally { setSaving(false); }
   }
 
   async function handleSaveOnly(e) {
@@ -207,6 +280,7 @@ function FinalizePanel({ sale, categories, onSave, onClose }) {
   }
 
   return (
+    <>
     <div className="overlay" onClick={onClose}>
       <div className="panel" onClick={e => e.stopPropagation()}>
         <div className="panel-header">
@@ -302,7 +376,7 @@ function FinalizePanel({ sale, categories, onSave, onClose }) {
               <div className="finalize-payment-total">
                 Total received: {formatEuro(totalReceived)}
                 {sale.sale_price_cents > 0 && totalReceived < sale.sale_price_cents && (
-                  <span className="muted"> · outstanding: {formatEuro(sale.sale_price_cents - totalReceived)}</span>
+                  <span className="muted"> · unpaid: {formatEuro(sale.sale_price_cents - totalReceived)}</span>
                 )}
               </div>
             </div>
@@ -353,19 +427,44 @@ function FinalizePanel({ sale, categories, onSave, onClose }) {
         </form>
       </div>
     </div>
+
+    {showUnpaid && (
+      <div className="dialog-overlay" onClick={() => setShowUnpaid(false)}>
+        <div className="dialog" onClick={e => e.stopPropagation()}>
+          <div className="dialog-header">
+            <h3 className="dialog-title">Still unpaid</h3>
+            <button className="btn-icon" onClick={() => setShowUnpaid(false)}>✕</button>
+          </div>
+          <p className="dialog-sub">{title}</p>
+          <p className="dialog-hint">
+            There's still <strong>{formatEuro(saleCents - totalReceived)}</strong> unpaid on
+            this order. Record the remaining payment before marking it as shipped.
+          </p>
+          <div className="form-actions" style={{ marginTop: 16 }}>
+            <button type="button" className="btn-primary" onClick={() => setShowUnpaid(false)}>
+              Got it
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
 // ── Main Commissions page ──────────────────────────────────────────────
 export default function Sales() {
   const [sales, setSales]           = useState([]);
+  const [history, setHistory]       = useState([]);
   const [categories, setCategories] = useState([]);
   const [clients, setClients]       = useState([]);
   const [categoryRates, setCategoryRates] = useState({}); // cents/hour by category
   const [showNewForm, setShowNewForm]         = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [finalizing, setFinalizing] = useState(null);
   const [payDialog, setPayDialog]   = useState(null);
   const [matDialog, setMatDialog]   = useState(null);
+  const [invoice, setInvoice]       = useState(null);
   const [workspace, setWorkspace]   = useState(null);
   const [form, setForm]             = useState(resetForm());
   const [saving, setSaving]         = useState(false);
@@ -373,7 +472,7 @@ export default function Sales() {
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    const [s, cats, cls, rates] = await Promise.all([
+    const [s, hist, cats, cls, rates] = await Promise.all([
       query(`
         SELECT p.id, p.title, p.estimated_hours, p.sale_price_cents,
                p.created_at, p.shipped, p.category_id,
@@ -392,6 +491,20 @@ export default function Sales() {
           AND p.project_type = 'commission'
         ORDER BY p.created_at DESC
       `),
+      // Finalized commissions (shipped or delivered) — the order history ledger.
+      query(`
+        SELECT p.id, p.title, p.sale_price_cents, p.shipped_at,
+               c.name AS client_name,
+               cat.category, cat.subtype,
+               COALESCE((SELECT SUM(hours) FROM time_logs WHERE project_id = p.id), 0) AS total_hours,
+               COALESCE((SELECT SUM(amount_cents) FROM materials WHERE project_id = p.id), 0) AS total_material
+        FROM projects p
+        LEFT JOIN clients c ON p.client_id = c.id
+        LEFT JOIN categories cat ON p.category_id = cat.id
+        WHERE p.project_type = 'commission'
+          AND (p.shipped = 1 OR p.delivered = 1)
+        ORDER BY p.shipped_at DESC NULLS LAST, p.created_at DESC
+      `),
       query(`SELECT * FROM categories ORDER BY category, sort_order, subtype`),
       query(`SELECT id, name FROM clients ORDER BY name`),
       // Average €/hour earned per category, from shipped commissions.
@@ -406,6 +519,7 @@ export default function Sales() {
       `),
     ]);
     setSales(s);
+    setHistory(hist);
     setCategories(cats);
     setClients(cls);
     const rateMap = {};
@@ -479,13 +593,57 @@ export default function Sales() {
   return (
     <div className="page">
       <div className="page-header">
-        <h1>Commissions</h1>
+        <h1>{showHistory ? "Order History" : "Commissions"}</h1>
         <div className="header-actions">
-          <button className="btn-primary" onClick={openForm}>+ New Order</button>
+          {showHistory ? (
+            <button className="btn-ghost" onClick={() => setShowHistory(false)}>← Back to active</button>
+          ) : (
+            <>
+              <button className="btn-ghost" onClick={() => setShowHistory(true)}>
+                🗄 History{history.length > 0 ? ` (${history.length})` : ""}
+              </button>
+              <button className="btn-primary" onClick={openForm}>+ New Order</button>
+            </>
+          )}
         </div>
       </div>
 
-      {sales.length > 0 && (
+      {showHistory && (
+        history.length === 0 ? (
+          <p className="empty-state">No finished orders yet. Mark an order as shipped and it lands here.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Title</th><th>Client</th><th>Type</th>
+                  <th>Sale price</th><th>Profit</th><th>Margin</th><th>€/hour</th><th>Shipped</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map(h => {
+                  const profit = h.sale_price_cents - h.total_material;
+                  return (
+                    <tr key={h.id} className="row-clickable"
+                      onClick={() => setInvoice(h)} title="View invoice">
+                      <td>{h.title}</td>
+                      <td>{h.client_name ?? "—"}</td>
+                      <td><span className="badge">{h.category}</span> {h.subtype}</td>
+                      <td>{formatEuro(h.sale_price_cents)}</td>
+                      <td className={profit >= 0 ? "positive" : "negative"}>{formatEuro(profit)}</td>
+                      <td>{formatMargin(profit, h.sale_price_cents)}</td>
+                      <td>{formatEuroPerHour(profit, h.total_hours)}</td>
+                      <td className="muted">{h.shipped_at ?? "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+
+      {!showHistory && sales.length > 0 && (
         <div className="table-wrap">
           <table className="data-table">
             <thead>
@@ -557,7 +715,7 @@ export default function Sales() {
         </div>
       )}
 
-      {sales.length === 0 && (
+      {!showHistory && sales.length === 0 && (
         <p className="empty-state">No active orders. Click <strong>+ New Order</strong> to add one.</p>
       )}
 
@@ -691,8 +849,14 @@ export default function Sales() {
           sale={finalizing}
           categories={categories}
           onSave={async () => { setFinalizing(null); await loadAll(); }}
+          onShipped={async (proj) => { setFinalizing(null); setInvoice(proj); await loadAll(); }}
           onClose={() => setFinalizing(null)}
         />
+      )}
+
+      {/* Invoice dialog — after shipping and from history */}
+      {invoice && (
+        <InvoiceDialog project={invoice} onClose={() => setInvoice(null)} />
       )}
 
       {/* Payment dialog */}

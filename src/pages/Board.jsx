@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { query, execute } from "../db";
 import { today } from "../utils/dates";
-import { formatEuro, formatEuroPerHour, formatMargin } from "../utils/money";
+import { formatEuro, formatMargin } from "../utils/money";
 
 function daysBetween(isoA, isoB) {
   const a = new Date(isoA + "T00:00:00");
@@ -155,11 +155,9 @@ export default function Board() {
   }
 
   const grouped = Object.fromEntries(COLS.map(c => [c.id, []]));
-  const history = [];
   for (const p of projects) {
     const status = getStatus(p, todayStr);
-    if (status === "history") history.push(p);
-    else if (grouped[status]) grouped[status].push(p);
+    if (grouped[status]) grouped[status].push(p); // "history" (delivered) lives on Commissions now
   }
 
   return (
@@ -194,45 +192,6 @@ export default function Board() {
           </div>
         ))}
       </div>
-
-      {/* History section */}
-      {history.length > 0 && (
-        <section className="board-history">
-          <h2 className="board-history-title">History</h2>
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Title</th><th>Client</th><th>Type</th>
-                  <th>Sale price</th><th>Profit</th><th>Margin</th><th>€/hour</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map(p => {
-                  const profit = p.sale_price_cents !== null
-                    ? p.sale_price_cents - p.material_cost_cents
-                    : null;
-                  return (
-                    <tr key={p.id}>
-                      <td>{p.title}</td>
-                      <td>{p.client_name ?? "—"}</td>
-                      <td>
-                        {p.project_type === "personal"
-                          ? <span className="badge badge--personal">{p.personal_category ?? "personal"}</span>
-                          : <><span className="badge">{p.category}</span> {p.subtype}</>}
-                      </td>
-                      <td>{formatEuro(p.sale_price_cents)}</td>
-                      <td className={profit >= 0 ? "positive" : "negative"}>{formatEuro(profit)}</td>
-                      <td>{formatMargin(profit, p.sale_price_cents)}</td>
-                      <td>{formatEuroPerHour(profit, p.total_hours)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
     </div>
   );
 }

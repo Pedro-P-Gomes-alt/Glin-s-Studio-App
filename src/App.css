@@ -2392,6 +2392,57 @@ textarea:focus-visible {
   margin-top: 2px;
 }
 
+/* ── What's-new popup ───────────────────────── */
+.whats-new { width: 440px; }
+
+.whats-new-list {
+  list-style: none;
+  margin: 14px 0 4px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+
+.whats-new-item-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--black);
+  margin-bottom: 2px;
+}
+
+.whats-new-item-body {
+  font-size: 0.84rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+/* ── Invoice summary (centered dialog) ──────── */
+.invoice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.invoice-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.invoice-total {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  margin-top: 2px;
+  font-weight: 800;
+}
+
 /* ── Personal project badge (Board) ─────────── */
 .badge--personal {
   background: #EDE9FE;
