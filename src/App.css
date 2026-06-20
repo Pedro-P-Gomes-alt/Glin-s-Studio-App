@@ -550,6 +550,19 @@ textarea:focus-visible {
   gap: 12px;
 }
 
+.field-trio {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+/* Reserve two lines for every label so a wrapping one (e.g. "Estimated time
+   (hours)") doesn't push its input below the others — keeps inputs aligned. */
+.field-trio .field label {
+  line-height: 1.2;
+  min-height: 2.4em;
+}
+
 .inline-row {
   display: flex;
   gap: 8px;

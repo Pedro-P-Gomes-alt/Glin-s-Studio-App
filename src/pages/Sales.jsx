@@ -425,11 +425,16 @@ export default function Sales() {
     .map(c => c.subtype);
 
   const saleCents     = eurosToCents(form.salePrice);
-  const profitCents   = saleCents; // no materials at creation — they're added later
+  const estExpensesCents   = eurosToCents(form.estimatedExpenses);
+  const profitCents   = saleCents - estExpensesCents; // estimated profit; real materials are added later as line items
   const estHours      = parseFloat(form.estimatedHours) || 0;
   const rateCents     = categoryRates[form.category] || 0; // cents per hour
-  const estimateCents = estHours > 0 && rateCents > 0 ? Math.round(estHours * rateCents) : null;
-  const showReadout   = saleCents > 0 || estHours > 0;
+  const laborEstimateCents = estHours > 0 && rateCents > 0 ? Math.round(estHours * rateCents) : 0;
+  // Suggested price = labour (hours × your historical €/h for the category) + expected expenses
+  const estimateCents = laborEstimateCents > 0 || estExpensesCents > 0
+    ? laborEstimateCents + estExpensesCents
+    : null;
+  const showReadout   = saleCents > 0 || estHours > 0 || estExpensesCents > 0;
 
   function openForm() {
     const f = resetForm();
@@ -625,11 +630,16 @@ export default function Sales() {
                 </div>
               </div>
 
-              <div className="field-pair">
+              <div className="field-trio">
                 <div className="field">
                   <label>Estimated time (hours)</label>
                   <input type="number" min="0" step="0.5" value={form.estimatedHours}
                     onChange={set("estimatedHours")} placeholder="e.g. 20" />
+                </div>
+                <div className="field">
+                  <label>Estimated expenses (€)</label>
+                  <input type="number" min="0" step="0.01" value={form.estimatedExpenses}
+                    onChange={set("estimatedExpenses")} placeholder="0.00" />
                 </div>
                 <div className="field">
                   <label>Agreed price (€) *</label>
@@ -719,6 +729,6 @@ function resetForm() {
   return {
     clientId: "", newClient: false, newClientName: "", newClientContact: "",
     title: "", category: "cosplay", subtype: "",
-    plannedStart: "", plannedEnd: "", estimatedHours: "", salePrice: "",
+    plannedStart: "", plannedEnd: "", estimatedHours: "", estimatedExpenses: "", salePrice: "",
   };
 }
