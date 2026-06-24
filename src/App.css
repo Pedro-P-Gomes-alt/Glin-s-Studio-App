@@ -823,7 +823,7 @@ textarea:focus-visible {
 /* ── Board ─────────────────────────────────── */
 .board-cols {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 16px;
   align-items: start;
 }
@@ -853,6 +853,7 @@ textarea:focus-visible {
 .board-col--todo    .board-col-header { background: var(--surface-2);    color: var(--muted); }
 .board-col--doing   .board-col-header { background: var(--accent-tint);  color: var(--accent-ink); }
 .board-col--pending .board-col-header { background: var(--warn-tint);    color: var(--warn); }
+.board-col--ready   .board-col-header { background: #E3F0FB;             color: #0B5C9E; }
 .board-col--shipped .board-col-header { background: var(--positive-tint); color: var(--positive); }
 
 .board-col-count {
@@ -928,6 +929,10 @@ textarea:focus-visible {
 .board-card-btn--return {
   background: #FEF3C7;
   color: #92400E;
+}
+
+.board-col--ready .board-card {
+  border-left: 3px solid #0B5C9E;
 }
 
 /* History section */
@@ -1376,6 +1381,22 @@ textarea:focus-visible {
   color: var(--muted);
   margin-top: 2px;
 }
+
+.stat-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.stat-delta {
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.stat-delta.trend-up   { color: #1B7F4B; }
+.stat-delta.trend-down { color: #C2453B; }
+.stat-delta.trend-flat { color: var(--muted); }
 
 .dash-observation {
   background: var(--accent-tint);
@@ -3288,6 +3309,61 @@ textarea:focus-visible {
 }
 .dash-metric-btn:hover { background: var(--bg); }
 .dash-metric-btn.active { background: var(--surface); }
+
+/* ── Grouped bar chart (YoY, throughput) ───── */
+.dash-grouped-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.dash-grouped-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.dash-grouped-legend i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+.dash-grouped {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  height: 180px;
+}
+.dash-grouped-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  min-width: 0;
+}
+.dash-grouped-bars {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+}
+.dash-grouped-bar {
+  width: 100%;
+  max-width: 14px;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  transition: height var(--dur) var(--ease);
+}
+.dash-grouped-lbl {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
 
 .dash-month-chart {
   display: flex;

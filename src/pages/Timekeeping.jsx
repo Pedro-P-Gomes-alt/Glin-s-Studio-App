@@ -30,8 +30,8 @@ export default function Timekeeping() {
 
   async function loadProjects() {
     const [projs, subs] = await Promise.all([
-      // Only projects still in play (To Do / Doing / Pending) — hide shipped & delivered
-      query(`SELECT id, title FROM projects WHERE shipped = 0 AND delivered = 0 ORDER BY title ASC`),
+      // Only projects still in play (To Do / Doing / Pending) — hide ready, shipped & delivered
+      query(`SELECT id, title FROM projects WHERE shipped = 0 AND delivered = 0 AND ready = 0 ORDER BY title ASC`),
       query(`SELECT id, project_id, title FROM subtasks ORDER BY sort_order, id`),
     ]);
     setProjects(projs);

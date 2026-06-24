@@ -81,6 +81,12 @@ pub fn run() {
             sql: include_str!("../migrations/013_todos.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 14,
+            description: "board ready stage",
+            sql: include_str!("../migrations/014_ready.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

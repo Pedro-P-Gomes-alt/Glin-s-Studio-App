@@ -202,7 +202,7 @@ function MaterialDialog({ commission, onSave, onClose }) {
 }
 
 // ── Update Order panel ─────────────────────────────────────────────────
-function FinalizePanel({ sale, categories, onSave, onShipped, onClose }) {
+function FinalizePanel({ sale, categories, onSave, onReady, onClose }) {
   const [title, setTitle] = useState(sale.title);
   const [showUnpaid, setShowUnpaid] = useState(false);
   const [category, setCategory] = useState(sale.category || "cosplay");
@@ -256,14 +256,15 @@ function FinalizePanel({ sale, categories, onSave, onShipped, onClose }) {
     );
   }
 
-  async function handleShip(e) {
+  async function handleReady(e) {
     e.preventDefault();
-    // Can't ship while money is still owed — make her settle the balance first.
+    // Can't finalize while money is still owed — make her settle the balance first.
     if (saleCents - totalReceived > 0) { setShowUnpaid(true); return; }
     setSaving(true);
     try {
-      await persist(`, shipped = 1, shipped_at = date('now')`);
-      onShipped({
+      // Finalize the order and park it in the board's Ready lane (not sent yet).
+      await persist(`, ready = 1`);
+      onReady({
         id: sale.id,
         title: title.trim(),
         client_name: sale.client_name,
@@ -291,7 +292,7 @@ function FinalizePanel({ sale, categories, onSave, onShipped, onClose }) {
           <button className="btn-icon" onClick={onClose}>✕</button>
         </div>
 
-        <form className="sale-form" onSubmit={handleShip}>
+        <form className="sale-form" onSubmit={handleReady}>
           {(sale.total_hours > 0 || sale.client_name) && (
             <div className="finalize-stats">
               {sale.total_hours > 0 && (
@@ -421,7 +422,7 @@ function FinalizePanel({ sale, categories, onSave, onShipped, onClose }) {
               Save changes
             </button>
             <button type="submit" className="btn-ship" disabled={saving}>
-              {saving ? "Shipping…" : "✓ Mark as Shipped"}
+              {saving ? "Saving…" : "✓ Mark as Ready"}
             </button>
           </div>
         </form>
@@ -438,7 +439,7 @@ function FinalizePanel({ sale, categories, onSave, onShipped, onClose }) {
           <p className="dialog-sub">{title}</p>
           <p className="dialog-hint">
             There's still <strong>{formatEuro(saleCents - totalReceived)}</strong> unpaid on
-            this order. Record the remaining payment before marking it as shipped.
+            this order. Record the remaining payment before marking it as ready.
           </p>
           <div className="form-actions" style={{ marginTop: 16 }}>
             <button type="button" className="btn-primary" onClick={() => setShowUnpaid(false)}>
@@ -849,7 +850,7 @@ export default function Sales() {
           sale={finalizing}
           categories={categories}
           onSave={async () => { setFinalizing(null); await loadAll(); }}
-          onShipped={async (proj) => { setFinalizing(null); setInvoice(proj); await loadAll(); }}
+          onReady={async (proj) => { setFinalizing(null); setInvoice(proj); await loadAll(); }}
           onClose={() => setFinalizing(null)}
         />
       )}

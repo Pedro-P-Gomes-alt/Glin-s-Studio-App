@@ -34,14 +34,12 @@ const DEFAULT_QUOTES_CONFIG = { scriptUrl: "", token: "" };
 // release so Glin sees what changed. The popup fires whenever the running
 // version differs from the last one she dismissed (stored in localStorage).
 const WHATS_NEW = [
-  { title: "Invoice on every shipped order",
-    body: "Mark an order as shipped and a quick invoice pops up — materials, hours, what you billed for your time, and what was paid." },
-  { title: "Orders must be paid before shipping",
-    body: "If there's still an unpaid balance, the app reminds you to record the payment before it lets you ship." },
-  { title: "Order history moved to Commissions",
-    body: "Finished orders now live behind the “History” button next to “New Order”. Click any order to see its invoice again." },
-  { title: "“Unpaid” instead of “Outstanding”",
-    body: "Clearer wording for money still owed on an order." },
+  { title: "A “Ready” lane on the board",
+    body: "Orders you've finished but haven't sent yet now wait in a new Ready column. Mark an order as Ready from Commissions, then press Shipped on the board once it's actually posted." },
+  { title: "Ready orders stay out of time tracking",
+    body: "Once an order is marked Ready it disappears from the time-log picker, so you can't accidentally log more hours against a finished job." },
+  { title: "Rebuilt dashboard",
+    body: "Three tabs — Monthly, History and Personal. See this month versus last at a glance, long-term trends with year-over-year and throughput, and where your personal and content time goes." },
 ];
 
 function ls(key, def) {

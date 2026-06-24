@@ -29,10 +29,15 @@ function HBar({ value, max, color = "var(--pink-rich)" }) {
   );
 }
 
-function StatCard({ label, value, note }) {
+function StatCard({ label, value, note, delta }) {
   return (
     <div className="stat-card">
-      <div className="stat-label">{label}</div>
+      <div className="stat-card-top">
+        <div className="stat-label">{label}</div>
+        {delta && (
+          <span className={`stat-delta ${delta.cls}`}>{delta.icon} {delta.label}</span>
+        )}
+      </div>
       <div className="stat-value">{value}</div>
       {note && <div className="stat-note">{note}</div>}
     </div>
@@ -53,6 +58,34 @@ function DashSection({ title, hint, children }) {
 
 function Empty({ msg }) {
   return <p className="dash-empty">{msg}</p>;
+}
+
+// Generic grouped vertical-bar chart — one column per period, one bar per series.
+function GroupedBars({ columns, series, fmt = v => v }) {
+  const max = Math.max(...columns.flatMap(c => c.values), 1);
+  return (
+    <>
+      <div className="dash-grouped-legend">
+        {series.map(s => (
+          <span key={s.label}><i style={{ background: s.color }} /> {s.label}</span>
+        ))}
+      </div>
+      <div className="dash-grouped">
+        {columns.map((c, ci) => (
+          <div key={ci} className="dash-grouped-col">
+            <div className="dash-grouped-bars">
+              {c.values.map((v, si) => (
+                <div key={si} className="dash-grouped-bar"
+                  style={{ height: `${pct(v, max)}%`, background: series[si].color, opacity: v === 0 ? 0.12 : 1 }}
+                  title={`${series[si].label}: ${fmt(v)}`} />
+              ))}
+            </div>
+            <span className="dash-grouped-lbl">{c.label}</span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
 }
 
 function fmtWeek(isoDate) {
@@ -86,11 +119,12 @@ function lastMonths(n) {
 }
 
 const HISTORY_METRICS = [
-  { key: "revenue", label: "Revenue", money: true,  color: "var(--pink-rich)" },
-  { key: "profit",  label: "Profit",  money: true,  color: "var(--positive)" },
-  { key: "cash",    label: "Cash in", money: true,  color: "#6B5BD2" },
-  { key: "hours",   label: "Hours",   money: false, color: "var(--black)", suffix: "h" },
-  { key: "shipped", label: "Shipped", money: false, color: "#0288D1" },
+  { key: "net",     label: "Net cash", money: true,  color: "var(--positive)" },
+  { key: "cash",    label: "Cash in",  money: true,  color: "#6B5BD2" },
+  { key: "revenue", label: "Revenue",  money: true,  color: "var(--pink-rich)" },
+  { key: "profit",  label: "Profit",   money: true,  color: "var(--positive)" },
+  { key: "hours",   label: "Hours",    money: false, color: "var(--black)", suffix: "h" },
+  { key: "shipped", label: "Shipped",  money: false, color: "#0288D1" },
 ];
 
 const fmtH = h => (h % 1 === 0 ? String(h) : Number(h).toFixed(1));
@@ -103,44 +137,63 @@ function trendArrow(current, avg) {
   return { icon: "→", label: "on track", cls: "trend-flat" };
 }
 
-export default function Dashboard() {
-  const [activeTab, setActiveTab]     = useState("overview");
+// Period-over-period delta pill. Handles a zero prior period gracefully.
+function delta(now, prev) {
+  if (prev === 0) return now > 0 ? { icon: "↑", label: "new", cls: "trend-up" } : null;
+  return trendArrow(now, prev);
+}
 
-  // Overview state
-  const [monthCash, setMonthCash]     = useState(null);
-  const [monthAvg, setMonthAvg]       = useState(null);
-  const [monthHours, setMonthHours]   = useState(0);
+export default function Dashboard() {
+  const [activeTab, setActiveTab] = useState("monthly");
+
+  // Monthly state
+  const [monthCash, setMonthCash]           = useState(null);
+  const [monthAvg, setMonthAvg]             = useState(null);
+  const [monthHours, setMonthHours]         = useState(0);
   const [monthMaterials, setMonthMaterials] = useState(0);
-  const [overview, setOverview]       = useState(null);
-  const [byCategory, setByCategory]   = useState([]);
-  const [bySubtype, setBySubtype]     = useState([]);
-  const [topClients, setTopClients]   = useState([]);
-  const [clientSplit, setClientSplit] = useState(null);
-  const [weeklyHours, setWeeklyHours] = useState([]);
-  const [unpaid, setUnpaid]           = useState(null);
-  const [estimateJobs, setEstimateJobs] = useState([]);
+  const [monthKpis, setMonthKpis]           = useState(null);
+  const [monthRate, setMonthRate]           = useState(null);
+  const [unpaid, setUnpaid]                 = useState(null);
+  const [cashWeeks, setCashWeeks]           = useState([]);
+  const [monthWorkType, setMonthWorkType]   = useState([]);
+  const [monthIncomeCat, setMonthIncomeCat] = useState([]);
+  const [activeWip, setActiveWip]           = useState([]);
+  const [monthlyCatFilter, setMonthlyCatFilter] = useState("all");
 
   // History state
+  const [overview, setOverview]             = useState(null);
+  const [byCategory, setByCategory]         = useState([]);
+  const [bySubtype, setBySubtype]           = useState([]);
+  const [topClients, setTopClients]         = useState([]);
+  const [clientSplit, setClientSplit]       = useState(null);
+  const [weeklyHours, setWeeklyHours]       = useState([]);
   const [monthlyShipped, setMonthlyShipped] = useState([]);
   const [monthlyCash, setMonthlyCash]       = useState([]);
   const [monthlyHours, setMonthlyHours]     = useState([]);
-  const [historyMetric, setHistoryMetric]   = useState("revenue");
+  const [monthlyMaterials, setMonthlyMaterials] = useState([]);
+  const [yoyIncome, setYoyIncome]           = useState([]);
+  const [throughput, setThroughput]         = useState([]);
+  const [historyMetric, setHistoryMetric]   = useState("net");
 
   // Personal state
-  const [personalTrend, setPersonalTrend]           = useState([]);
-  const [personalStats, setPersonalStats]           = useState(null);
-  const [personalShare, setPersonalShare]           = useState(null);
-  const [timeSplit, setTimeSplit]                   = useState([]);
-  const [personalEffort, setPersonalEffort]         = useState([]);
-  const [activePersonal, setActivePersonal]         = useState([]);
+  const [personalTrend, setPersonalTrend]   = useState([]);
+  const [personalStats, setPersonalStats]   = useState(null);
+  const [personalShare, setPersonalShare]   = useState(null);
+  const [timeSplit, setTimeSplit]           = useState([]);
+  const [personalEffort, setPersonalEffort] = useState([]);
+  const [activePersonal, setActivePersonal] = useState([]);
 
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    const [mw, mavg, mh, ov, cats, subs, cls, split, wh, pip, ptrend,
-           msh, mca, mho, est, matMonth, pstats, pshare, tsplit, peffort, pactive] =
+    const prevMonth = "strftime('%Y-%m', date('now','start of month','-1 month'))";
+    const [mw, mavg, mh, matMonth, mkpi, mrate, pip, cweeks, mwt, micat, wip,
+           ov, cats, subs, cls, split, wh,
+           msh, mca, mho, mmat, yoy, tput,
+           ptrend, pstats, pshare, tsplit, peffort, pactive] =
       await Promise.all([
-        // Cash received via payments this month (by received_on date)
+        // ── MONTHLY ──────────────────────────────────────────────
+        // Cash received via payments this month (drives the wage card)
         query(`
           SELECT COALESCE(SUM(amount_cents), 0) AS received,
                  COUNT(DISTINCT project_id) AS count
@@ -172,6 +225,96 @@ export default function Dashboard() {
           FROM time_logs
           WHERE strftime('%Y-%m', date) = strftime('%Y-%m', 'now')
         `),
+        // Material spend this calendar month (by purchase date)
+        query(`
+          SELECT COALESCE(SUM(amount_cents), 0) AS spent
+          FROM materials
+          WHERE strftime('%Y-%m', bought_on) = strftime('%Y-%m', 'now')
+        `),
+        // Month-over-month KPIs: this month vs last month
+        query(`
+          SELECT
+            (SELECT COALESCE(SUM(amount_cents),0) FROM payments
+               WHERE strftime('%Y-%m',received_on)=strftime('%Y-%m','now')) AS cash_now,
+            (SELECT COALESCE(SUM(amount_cents),0) FROM payments
+               WHERE strftime('%Y-%m',received_on)=${prevMonth}) AS cash_prev,
+            (SELECT COALESCE(SUM(hours),0) FROM time_logs
+               WHERE strftime('%Y-%m',date)=strftime('%Y-%m','now')) AS hours_now,
+            (SELECT COALESCE(SUM(hours),0) FROM time_logs
+               WHERE strftime('%Y-%m',date)=${prevMonth}) AS hours_prev,
+            (SELECT COUNT(*) FROM projects
+               WHERE shipped=1 AND project_type='commission'
+                 AND strftime('%Y-%m',shipped_at)=strftime('%Y-%m','now')) AS delivered_now,
+            (SELECT COUNT(*) FROM projects
+               WHERE shipped=1 AND project_type='commission'
+                 AND strftime('%Y-%m',shipped_at)=${prevMonth}) AS delivered_prev
+        `),
+        // Effective €/hour on commissions delivered this month
+        query(`
+          SELECT
+            COALESCE(SUM(p.sale_price_cents - (SELECT COALESCE(SUM(amount_cents),0) FROM materials WHERE project_id=p.id)),0) AS profit,
+            COALESCE(SUM((SELECT COALESCE(SUM(hours),0) FROM time_logs WHERE project_id=p.id)),0) AS hours
+          FROM projects p
+          WHERE p.shipped=1 AND p.project_type='commission'
+            AND strftime('%Y-%m',p.shipped_at)=strftime('%Y-%m','now')
+        `),
+        // Unpaid balance: sale price still owed across commissions
+        query(`
+          SELECT COUNT(*) AS count,
+                 COALESCE(SUM(balance), 0) AS value
+          FROM (
+            SELECT p.sale_price_cents
+                   - COALESCE((SELECT SUM(amount_cents) FROM payments WHERE project_id = p.id), 0) AS balance
+            FROM projects p
+            WHERE p.project_type = 'commission'
+              AND p.sale_price_cents IS NOT NULL
+          ) sub
+          WHERE balance > 0
+        `),
+        // Cash received this month, bucketed into weeks of the month
+        query(`
+          SELECT CAST((CAST(strftime('%d',received_on) AS INTEGER)-1)/7 AS INTEGER) AS wk,
+                 COALESCE(SUM(amount_cents),0) AS cash
+          FROM payments
+          WHERE strftime('%Y-%m',received_on)=strftime('%Y-%m','now')
+          GROUP BY wk ORDER BY wk
+        `),
+        // Hours by work type — this month and last month
+        query(`
+          SELECT strftime('%Y-%m', tl.date) AS month,
+                 COALESCE(SUM(CASE WHEN p.project_type='personal'   THEN tl.hours END),0) AS personal,
+                 COALESCE(SUM(CASE WHEN p.project_type='commission' THEN tl.hours END),0) AS commission,
+                 COALESCE(SUM(CASE WHEN p.id IS NULL                THEN tl.hours END),0) AS admin
+          FROM time_logs tl
+          LEFT JOIN projects p ON p.id = tl.project_id
+          WHERE tl.date >= date('now','start of month','-1 month')
+          GROUP BY month ORDER BY month
+        `),
+        // Income by category — commissions delivered this month
+        query(`
+          SELECT cat.category, cat.subtype,
+                 COUNT(*) AS count,
+                 COALESCE(SUM(p.sale_price_cents),0) AS revenue
+          FROM projects p
+          JOIN categories cat ON cat.id = p.category_id
+          WHERE p.shipped=1 AND p.project_type='commission'
+            AND strftime('%Y-%m',p.shipped_at)=strftime('%Y-%m','now')
+          GROUP BY cat.category, cat.subtype
+          ORDER BY revenue DESC
+        `),
+        // Active commissions in progress (work-in-progress board)
+        query(`
+          SELECT p.id, p.title, c.name AS client,
+                 (SELECT MAX(date) FROM time_logs WHERE project_id=p.id) AS last_log,
+                 p.sale_price_cents
+                   - COALESCE((SELECT SUM(amount_cents) FROM payments WHERE project_id=p.id),0) AS balance
+          FROM projects p
+          LEFT JOIN clients c ON c.id = p.client_id
+          WHERE p.project_type='commission' AND p.shipped=0 AND p.delivered=0 AND p.ready=0
+          ORDER BY (last_log IS NULL), last_log ASC
+        `),
+
+        // ── HISTORY ──────────────────────────────────────────────
         // All-time stats from shipped commissions
         query(`
           SELECT COUNT(DISTINCT p.id) AS total,
@@ -239,31 +382,7 @@ export default function Dashboard() {
           GROUP BY week
           ORDER BY week
         `),
-        // Unpaid balance: sale price still owed across commissions
-        query(`
-          SELECT COUNT(*) AS count,
-                 COALESCE(SUM(balance), 0) AS value
-          FROM (
-            SELECT p.sale_price_cents
-                   - COALESCE((SELECT SUM(amount_cents) FROM payments WHERE project_id = p.id), 0) AS balance
-            FROM projects p
-            WHERE p.project_type = 'commission'
-              AND p.sale_price_cents IS NOT NULL
-          ) sub
-          WHERE balance > 0
-        `),
-        // Personal: last 6 months trend by category
-        query(`
-          SELECT strftime('%Y-%m', created_at) AS month,
-                 personal_category AS cat,
-                 COUNT(*) AS count
-          FROM projects
-          WHERE project_type = 'personal'
-            AND created_at >= date('now', '-6 months', 'start of month')
-          GROUP BY month, personal_category
-          ORDER BY month
-        `),
-        // History: shipped commissions per month (by shipped date) — last 12 months
+        // Shipped commissions per month (by shipped date) — last 12 months
         query(`
           SELECT strftime('%Y-%m', shipped_at) AS month,
                  COUNT(*) AS count,
@@ -274,7 +393,7 @@ export default function Dashboard() {
             AND shipped_at >= date('now', '-12 months', 'start of month')
           GROUP BY month
         `),
-        // History: cash received per month
+        // Cash received per month
         query(`
           SELECT strftime('%Y-%m', received_on) AS month,
                  COALESCE(SUM(amount_cents), 0) AS cash
@@ -282,7 +401,7 @@ export default function Dashboard() {
           WHERE received_on >= date('now', '-12 months', 'start of month')
           GROUP BY month
         `),
-        // History: hours logged per month
+        // Hours logged per month
         query(`
           SELECT strftime('%Y-%m', date) AS month,
                  COALESCE(SUM(hours), 0) AS hours
@@ -290,23 +409,51 @@ export default function Dashboard() {
           WHERE date >= date('now', '-12 months', 'start of month')
           GROUP BY month
         `),
-        // Estimate accuracy: shipped commissions that had an estimate
+        // Material spend per month (for net = cash − materials)
         query(`
-          SELECT p.id, p.title, cat.category, p.estimated_hours,
-                 COALESCE((SELECT SUM(hours) FROM time_logs WHERE project_id = p.id), 0) AS actual_hours
-          FROM projects p
-          JOIN categories cat ON p.category_id = cat.id
-          WHERE p.project_type = 'commission' AND p.shipped = 1
-            AND p.estimated_hours IS NOT NULL AND p.estimated_hours > 0
-          ORDER BY p.shipped_at DESC, p.id DESC
-        `),
-        // Material spend this calendar month (by purchase date)
-        query(`
-          SELECT COALESCE(SUM(amount_cents), 0) AS spent
+          SELECT strftime('%Y-%m', bought_on) AS month,
+                 COALESCE(SUM(amount_cents), 0) AS materials
           FROM materials
-          WHERE strftime('%Y-%m', bought_on) = strftime('%Y-%m', 'now')
+          WHERE bought_on >= date('now', '-12 months', 'start of month')
+          GROUP BY month
         `),
-        // Personal: headline totals (this month / this year)
+        // Year-over-year cash, by month of year
+        query(`
+          SELECT strftime('%Y', received_on) AS yr,
+                 strftime('%m', received_on) AS mo,
+                 COALESCE(SUM(amount_cents), 0) AS cash
+          FROM payments
+          GROUP BY yr, mo
+          ORDER BY yr, mo
+        `),
+        // Throughput: commissions started vs delivered per month — last 12 months
+        query(`
+          SELECT month, SUM(started) AS started, SUM(delivered) AS delivered FROM (
+            SELECT strftime('%Y-%m', created_at) AS month, 1 AS started, 0 AS delivered
+              FROM projects
+              WHERE project_type='commission'
+                AND created_at >= date('now','-12 months','start of month')
+            UNION ALL
+            SELECT strftime('%Y-%m', shipped_at) AS month, 0 AS started, 1 AS delivered
+              FROM projects
+              WHERE project_type='commission' AND shipped=1 AND shipped_at IS NOT NULL
+                AND shipped_at >= date('now','-12 months','start of month')
+          ) GROUP BY month
+        `),
+
+        // ── PERSONAL ─────────────────────────────────────────────
+        // Last 6 months trend by category
+        query(`
+          SELECT strftime('%Y-%m', created_at) AS month,
+                 personal_category AS cat,
+                 COUNT(*) AS count
+          FROM projects
+          WHERE project_type = 'personal'
+            AND created_at >= date('now', '-6 months', 'start of month')
+          GROUP BY month, personal_category
+          ORDER BY month
+        `),
+        // Headline totals (this month / this year)
         query(`
           SELECT
             (SELECT COALESCE(SUM(tl.hours), 0) FROM time_logs tl JOIN projects p ON p.id = tl.project_id
@@ -318,7 +465,7 @@ export default function Dashboard() {
             (SELECT COUNT(*) FROM projects
                WHERE project_type = 'personal' AND created_at >= date('now', 'start of year')) AS projects_year
         `),
-        // Personal: share of logged time (last 90 days)
+        // Share of logged time (last 90 days)
         query(`
           SELECT
             COALESCE(SUM(CASE WHEN p.project_type = 'personal' THEN tl.hours END), 0) AS personal,
@@ -327,7 +474,7 @@ export default function Dashboard() {
           LEFT JOIN projects p ON p.id = tl.project_id
           WHERE tl.date >= date('now', '-90 days')
         `),
-        // Personal: hours split (personal / commission / admin) per month — last 6 months
+        // Hours split (personal / commission / admin) per month — last 6 months
         query(`
           SELECT strftime('%Y-%m', tl.date) AS month,
                  COALESCE(SUM(CASE WHEN p.project_type = 'personal'   THEN tl.hours END), 0) AS personal,
@@ -339,7 +486,7 @@ export default function Dashboard() {
           GROUP BY month
           ORDER BY month
         `),
-        // Personal: effort per content type (all-time)
+        // Effort per content type (all-time)
         query(`
           SELECT p.personal_category AS cat,
                  COUNT(DISTINCT p.id) AS projects,
@@ -349,7 +496,7 @@ export default function Dashboard() {
           WHERE p.project_type = 'personal'
           GROUP BY p.personal_category
         `),
-        // Personal: most recently worked projects
+        // Most recently worked projects
         query(`
           SELECT p.id, p.title, p.personal_category AS cat, p.planned_end,
                  COALESCE(SUM(tl.hours), 0) AS hours,
@@ -368,44 +515,78 @@ export default function Dashboard() {
     setMonthAvg(mavg[0] ?? null);
     setMonthHours(mh[0]?.hours ?? 0);
     setMonthMaterials(matMonth[0]?.spent ?? 0);
+    setMonthKpis(mkpi[0] ?? null);
+    setMonthRate(mrate[0] ?? null);
+    setUnpaid(pip[0] ?? null);
+    setCashWeeks(cweeks);
+    setMonthWorkType(mwt);
+    setMonthIncomeCat(micat);
+    setActiveWip(wip);
+
     setOverview(ov[0] ?? null);
     setByCategory(cats);
     setBySubtype(subs);
     setTopClients(cls);
     setClientSplit(split[0] ?? null);
     setWeeklyHours(wh);
-    setUnpaid(pip[0] ?? null);
+    setMonthlyShipped(msh);
+    setMonthlyCash(mca);
+    setMonthlyHours(mho);
+    setMonthlyMaterials(mmat);
+    setYoyIncome(yoy);
+    setThroughput(tput);
+
     setPersonalTrend(ptrend);
     setPersonalStats(pstats[0] ?? null);
     setPersonalShare(pshare[0] ?? null);
     setTimeSplit(tsplit);
     setPersonalEffort(peffort);
     setActivePersonal(pactive);
-    setMonthlyShipped(msh);
-    setMonthlyCash(mca);
-    setMonthlyHours(mho);
-    setEstimateJobs(est);
   }
 
-  // ── Estimate accuracy ──────────────────────────────────────────────
-  const estTotalPlanned = estimateJobs.reduce((s, j) => s + j.estimated_hours, 0);
-  const estTotalActual  = estimateJobs.reduce((s, j) => s + j.actual_hours, 0);
-  const estBiasPct = estTotalPlanned > 0
-    ? Math.round(((estTotalActual - estTotalPlanned) / estTotalPlanned) * 100)
-    : 0;
-  const estInsight = estimateJobs.length === 0 ? null
-    : estBiasPct > 10
-      ? `You tend to underestimate — jobs take about ${estBiasPct}% longer than planned. Padding your time estimates (and prices) would reflect reality better.`
-      : estBiasPct < -10
-        ? `You tend to overestimate — jobs finish about ${Math.abs(estBiasPct)}% faster than planned. You have room to quote more competitively, or you're pricing in a safe buffer.`
-        : `Your estimates are on point — within ${Math.abs(estBiasPct)}% of actual time across ${estimateJobs.length} job${estimateJobs.length !== 1 ? "s" : ""}.`;
+  const now = new Date();
+  const monthLabel = `${MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`;
 
+  // ── Monthly: wage card (unchanged) ─────────────────────────────────
+  const cashReceived  = monthCash?.received ?? 0;
+  const materialSpent = monthMaterials ?? 0;
+  const netEarned     = cashReceived - materialSpent;
+  const avgReceived   = monthAvg?.avg_received ?? 0;
+  const trend = avgReceived > 0 ? trendArrow(netEarned, avgReceived) : null;
+
+  // ── Monthly: KPI deltas ────────────────────────────────────────────
+  const k = monthKpis ?? {};
+  const rateHours  = monthRate?.hours ?? 0;
+  const rateProfit = monthRate?.profit ?? 0;
+
+  // ── Monthly: cash by week ──────────────────────────────────────────
+  const weekCash = [0, 0, 0, 0, 0];
+  for (const r of cashWeeks) if (r.wk >= 0 && r.wk < 5) weekCash[r.wk] = r.cash;
+  const lastWeekIdx = Math.max(0, ...cashWeeks.map(r => r.wk));
+  const weekCols = weekCash.slice(0, Math.max(4, lastWeekIdx + 1));
+  const maxWeekCash = Math.max(...weekCols, 1);
+
+  // ── Monthly: hours by work type (this & last month) ────────────────
+  const wtMonths = lastMonths(2);
+  const wtByMonth = Object.fromEntries(monthWorkType.map(r => [r.month, r]));
+  const maxWtHours = Math.max(
+    ...wtMonths.map(m => {
+      const r = wtByMonth[m];
+      return r ? r.personal + r.commission + r.admin : 0;
+    }), 1
+  );
+
+  // ── Monthly: income by category (client-side category filter) ──────
+  const incomeRows = monthIncomeCat.filter(
+    r => monthlyCatFilter === "all" || r.category === monthlyCatFilter
+  );
+  const maxIncome = Math.max(...incomeRows.map(r => r.revenue), 1);
+
+  // ── History derived ────────────────────────────────────────────────
   const noShipped = !overview || overview.total === 0;
-
-  const maxCatRevenue  = Math.max(...byCategory.map(c => c.revenue), 1);
-  const maxSubProfit   = Math.max(...bySubtype.map(s => s.profit), 1);
-  const maxClientVal   = Math.max(...topClients.map(c => c.lifetime_value), 1);
-  const maxWeekHours   = Math.max(...weeklyHours.map(w => w.hours), 1);
+  const maxSubProfit = Math.max(...bySubtype.map(s => s.profit), 1);
+  const maxClientVal = Math.max(...topClients.map(c => c.lifetime_value), 1);
+  const maxWeekHours = Math.max(...weeklyHours.map(w => w.hours), 1);
 
   function observation() {
     if (byCategory.length < 2) return null;
@@ -423,15 +604,55 @@ export default function Dashboard() {
   const obs = observation();
 
   const totalClients = clientSplit ? clientSplit.new_clients + clientSplit.repeat_clients : 0;
-  const now = new Date();
-  const monthLabel = `${MONTH_NAMES[now.getMonth()]} ${now.getFullYear()}`;
-  const cashReceived = monthCash?.received ?? 0;
-  const materialSpent = monthMaterials ?? 0;
-  const netEarned    = cashReceived - materialSpent;
-  const avgReceived  = monthAvg?.avg_received ?? 0;
-  const trend = avgReceived > 0 ? trendArrow(netEarned, avgReceived) : null;
 
-  // Personal trend data processing
+  // History: merge monthly aggregates onto a fixed 12-month axis
+  const histMonths = lastMonths(12);
+  const histMaps = { revenue: {}, profit: {}, cash: {}, hours: {}, shipped: {}, materials: {}, net: {} };
+  for (const r of monthlyShipped) {
+    histMaps.revenue[r.month] = r.revenue;
+    histMaps.profit[r.month]  = r.profit;
+    histMaps.shipped[r.month] = r.count;
+  }
+  for (const r of monthlyCash)      histMaps.cash[r.month]      = r.cash;
+  for (const r of monthlyHours)     histMaps.hours[r.month]     = r.hours;
+  for (const r of monthlyMaterials) histMaps.materials[r.month] = r.materials;
+  for (const m of histMonths) histMaps.net[m] = (histMaps.cash[m] ?? 0) - (histMaps.materials[m] ?? 0);
+
+  const histMetric  = HISTORY_METRICS.find(m => m.key === historyMetric);
+  const histValues  = histMonths.map(m => histMaps[historyMetric][m] ?? 0);
+  const histMax     = Math.max(...histValues.map(v => Math.abs(v)), 1);
+  const histHasData = histValues.some(v => v !== 0)
+                      || Object.values(histMaps).some(map => Object.keys(map).length > 0);
+
+  function fmtMetric(key, v) {
+    const m = HISTORY_METRICS.find(x => x.key === key);
+    if (m.money) return formatEuro(v);
+    return `${v}${m.suffix ?? ""}`;
+  }
+
+  // History: year-over-year columns (one column per month of year)
+  const yoyYears = [...new Set(yoyIncome.map(r => r.yr))].sort();
+  const yoyMap = {};
+  for (const r of yoyIncome) yoyMap[`${r.yr}-${r.mo}`] = r.cash;
+  const yoyPalette = ["#D9A2A2", "#C57B7B", "var(--pink-rich)", "#8E24AA"];
+  const yoyColumns = MONTH_NAMES.map((name, i) => {
+    const mo = String(i + 1).padStart(2, "0");
+    return { label: name.slice(0, 3), values: yoyYears.map(y => (yoyMap[`${y}-${mo}`] ?? 0) / 100) };
+  });
+  const yoySeries = yoyYears.map((y, i) => ({ label: y, color: yoyPalette[i % yoyPalette.length] }));
+
+  // History: throughput columns over the 12-month axis
+  const tputMap = Object.fromEntries(throughput.map(r => [r.month, r]));
+  const tputColumns = histMonths.map(m => ({
+    label: fmtMonth(m),
+    values: [tputMap[m]?.started ?? 0, tputMap[m]?.delivered ?? 0],
+  }));
+  const tputSeries = [
+    { label: "Started", color: "var(--black)" },
+    { label: "Delivered", color: "#0288D1" },
+  ];
+
+  // ── Personal derived ───────────────────────────────────────────────
   const trendMonths = [...new Set(personalTrend.map(r => r.month))].sort();
   const trendByCat = {};
   for (const r of personalTrend) {
@@ -440,7 +661,6 @@ export default function Dashboard() {
   }
   const activeTrendCats = Object.keys(trendByCat).sort();
 
-  // Personal: derived figures for the headline + time-split chart
   const sharePct = personalShare && personalShare.total > 0
     ? Math.round((personalShare.personal / personalShare.total) * 100)
     : null;
@@ -456,37 +676,14 @@ export default function Dashboard() {
     || (personalStats?.projects_year ?? 0) > 0
     || activePersonal.length > 0;
 
-  // History: merge monthly aggregates onto a fixed 12-month axis
-  const histMonths = lastMonths(12);
-  const histMaps = { revenue: {}, profit: {}, cash: {}, hours: {}, shipped: {} };
-  for (const r of monthlyShipped) {
-    histMaps.revenue[r.month] = r.revenue;
-    histMaps.profit[r.month]  = r.profit;
-    histMaps.shipped[r.month] = r.count;
-  }
-  for (const r of monthlyCash)  histMaps.cash[r.month]  = r.cash;
-  for (const r of monthlyHours) histMaps.hours[r.month] = r.hours;
-
-  const histMetric    = HISTORY_METRICS.find(m => m.key === historyMetric);
-  const histValues    = histMonths.map(m => histMaps[historyMetric][m] ?? 0);
-  const histMax       = Math.max(...histValues, 1);
-  const histHasData   = histValues.some(v => v > 0)
-                        || Object.values(histMaps).some(map => Object.keys(map).length > 0);
-
-  function fmtMetric(key, v) {
-    const m = HISTORY_METRICS.find(x => x.key === key);
-    if (m.money) return formatEuro(v);
-    return `${v}${m.suffix ?? ""}`;
-  }
-
   return (
     <div className="page">
       <div className="page-header">
         <h1>Dashboard</h1>
         <div className="dash-tab-bar">
           <button
-            className={`dash-tab${activeTab === "overview" ? " active" : ""}`}
-            onClick={() => setActiveTab("overview")}>Overview</button>
+            className={`dash-tab${activeTab === "monthly" ? " active" : ""}`}
+            onClick={() => setActiveTab("monthly")}>Monthly</button>
           <button
             className={`dash-tab${activeTab === "history" ? " active" : ""}`}
             onClick={() => setActiveTab("history")}>History</button>
@@ -496,9 +693,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* ──────────────── OVERVIEW TAB ──────────────── */}
-      {activeTab === "overview" && <>
-        {/* Monthly wage — cash received */}
+      {/* ──────────────── MONTHLY TAB ──────────────── */}
+      {activeTab === "monthly" && <>
+        {/* Monthly wage — cash received (kept first, unchanged) */}
         <div className="month-wage-card">
           <div className="month-wage-left">
             <div className="month-wage-label">{monthLabel}</div>
@@ -528,30 +725,30 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Summary cards */}
+        {/* This-month KPI cards with month-over-month deltas */}
         <div className="stat-grid">
           <StatCard
-            label="Total revenue"
-            value={overview ? formatEuro(overview.revenue) : "—"}
-            note={overview?.total > 0
-              ? `${overview.total} commission${overview.total !== 1 ? "s" : ""} shipped`
-              : "No shipped commissions yet"}
+            label="Cash received"
+            value={formatEuro(k.cash_now ?? 0)}
+            note="vs last month"
+            delta={delta(k.cash_now ?? 0, k.cash_prev ?? 0)}
           />
           <StatCard
-            label="Total profit"
-            value={overview ? formatEuro(overview.profit) : "—"}
-            note={overview?.revenue > 0
-              ? `${((overview.profit / overview.revenue) * 100).toFixed(1)}% overall margin`
-              : undefined}
+            label="Orders delivered"
+            value={k.delivered_now ?? 0}
+            note="commissions shipped"
+            delta={delta(k.delivered_now ?? 0, k.delivered_prev ?? 0)}
           />
           <StatCard
-            label="Avg €/hour"
-            value={overview?.hours > 0
-              ? `€${(overview.profit / 100 / overview.hours).toFixed(2)}`
-              : "—"}
-            note={overview?.hours > 0
-              ? `across ${overview.hours}h logged`
-              : "Log time on commissions to see this"}
+            label="Hours logged"
+            value={`${fmtH(k.hours_now ?? 0)}h`}
+            note="vs last month"
+            delta={delta(k.hours_now ?? 0, k.hours_prev ?? 0)}
+          />
+          <StatCard
+            label="Effective €/hour"
+            value={rateHours > 0 ? `€${(rateProfit / 100 / rateHours).toFixed(2)}` : "—"}
+            note={rateHours > 0 ? "on this month's deliveries" : "no deliveries yet"}
           />
           <StatCard
             label="Unpaid"
@@ -562,149 +759,19 @@ export default function Dashboard() {
           />
         </div>
 
-        {obs && (
-          <div className="dash-observation">
-            <strong>Observation:</strong> {obs}
-          </div>
-        )}
-
-        {/* Estimate accuracy */}
-        <DashSection title="Estimate Accuracy" hint="Planned vs actual hours on shipped commissions">
-          {estimateJobs.length === 0 ? (
-            <Empty msg="Set an estimated time on your orders to see how your planning compares to reality." />
-          ) : (
-            <>
-              <div className={`dash-estimate-banner ${estBiasPct > 10 ? "is-under" : estBiasPct < -10 ? "is-over" : "is-onpoint"}`}>
-                {estInsight}
-              </div>
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr><th>Job</th><th>Type</th><th>Estimated</th><th>Actual</th><th>Variance</th></tr>
-                  </thead>
-                  <tbody>
-                    {estimateJobs.map(j => {
-                      const diff = j.actual_hours - j.estimated_hours;
-                      const pctv = j.estimated_hours > 0 ? Math.round((diff / j.estimated_hours) * 100) : 0;
-                      const close = Math.abs(pctv) <= 10;
-                      return (
-                        <tr key={j.id}>
-                          <td>{j.title}</td>
-                          <td><span className="badge">{j.category}</span></td>
-                          <td>{fmtH(j.estimated_hours)}h</td>
-                          <td>{fmtH(j.actual_hours)}h</td>
-                          <td className={close ? "" : diff > 0 ? "negative" : "positive"}>
-                            {diff === 0 ? "on point" : `${diff > 0 ? "+" : ""}${fmtH(diff)}h (${pctv > 0 ? "+" : ""}${pctv}%)`}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    <tr className="dash-estimate-total">
-                      <td colSpan={2}>Total</td>
-                      <td>{fmtH(estTotalPlanned)}h</td>
-                      <td>{fmtH(estTotalActual)}h</td>
-                      <td className={Math.abs(estBiasPct) <= 10 ? "" : estBiasPct > 0 ? "negative" : "positive"}>
-                        {estBiasPct > 0 ? "+" : ""}{estBiasPct}%
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </>
-          )}
-        </DashSection>
-
-        {/* Category breakdown */}
-        <DashSection title="By Category" hint="Shipped commissions only">
-          {noShipped
-            ? <Empty msg="Ship commissions to see category data." />
-            : (
-              <div className="dash-cat-cards">
-                {byCategory.map(cat => (
-                  <div key={cat.category} className="dash-round-card">
-                    <div className="dash-round-head">
-                      <span className="badge">{cat.category}</span>
-                      <span className="dash-round-count">{cat.count} job{cat.count !== 1 ? "s" : ""}</span>
-                    </div>
-                    <div className="dash-round-value">{formatEuro(cat.profit)}</div>
-                    <div className="dash-round-label">
-                      profit · {formatMargin(cat.profit, cat.revenue)} margin
-                    </div>
-                    <div className="dash-round-foot">
-                      <div className="dash-round-stat">
-                        <span className="dash-round-stat-val">{formatEuro(cat.revenue)}</span>
-                        <span className="dash-round-stat-lbl">revenue</span>
-                      </div>
-                      <div className="dash-round-stat">
-                        <span className="dash-round-stat-val">
-                          {cat.hours > 0 ? formatEuroPerHour(cat.profit, cat.hours) : "—"}
-                        </span>
-                        <span className="dash-round-stat-lbl">€/hour</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )
-          }
-        </DashSection>
-
-        {/* Subtype breakdown */}
-        <DashSection title="By Work Type" hint="Ranked by profit — ⚠ flags margin below 20%">
-          {noShipped
-            ? <Empty msg="Ship commissions to see work type data." />
-            : (
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Type</th><th>Jobs</th><th>Revenue</th>
-                      <th>Profit</th><th>Margin</th><th>€/hour</th>
-                      <th style={{ width: "120px" }}>Profit bar</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bySubtype.map(s => {
-                      const thinMargin = s.revenue > 0 && (s.profit / s.revenue) < 0.2;
-                      return (
-                        <tr key={`${s.category}-${s.subtype}`}>
-                          <td>
-                            <span className="badge">{s.category}</span>{" "}
-                            {s.subtype}
-                            {thinMargin && <span className="dash-warn" title="Thin margin (under 20%)"> ⚠</span>}
-                          </td>
-                          <td>{s.count}</td>
-                          <td>{formatEuro(s.revenue)}</td>
-                          <td className={s.profit >= 0 ? "positive" : "negative"}>{formatEuro(s.profit)}</td>
-                          <td>{formatMargin(s.profit, s.revenue)}</td>
-                          <td>{s.hours > 0 ? formatEuroPerHour(s.profit, s.hours) : "—"}</td>
-                          <td><HBar value={s.profit} max={maxSubProfit} /></td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )
-          }
-        </DashSection>
-
-        {/* Weekly hours */}
-        <DashSection title="Weekly Hours" hint="Last 10 weeks">
-          {weeklyHours.length === 0
-            ? <Empty msg="No time logs yet." />
+        {/* Cash this month by week */}
+        <DashSection title="Cash This Month" hint="Payments received, by week">
+          {cashReceived === 0
+            ? <Empty msg="No payments recorded this month yet." />
             : (
               <div className="dash-week-chart">
-                {weeklyHours.map((w, i) => (
+                {weekCols.map((c, i) => (
                   <div key={i} className="dash-week-col">
-                    <span className="dash-week-val">{w.hours > 0 ? `${w.hours}h` : ""}</span>
+                    <span className="dash-week-val">{c > 0 ? formatEuro(c) : ""}</span>
                     <div className="dash-week-track">
-                      <div
-                        className="dash-week-fill"
-                        style={{ height: `${pct(w.hours, maxWeekHours)}%` }}
-                      />
+                      <div className="dash-week-fill" style={{ height: `${pct(c, maxWeekCash)}%` }} />
                     </div>
-                    <span className="dash-week-lbl">{fmtWeek(w.week_start)}</span>
+                    <span className="dash-week-lbl">Wk {i + 1}</span>
                   </div>
                 ))}
               </div>
@@ -712,55 +779,103 @@ export default function Dashboard() {
           }
         </DashSection>
 
-        {/* Client insights */}
-        <div className="dash-two-col">
-          <DashSection title="Top Clients" hint="By revenue">
-            {topClients.length === 0
-              ? <Empty msg="No clients on shipped commissions yet." />
-              : (
-                <div className="dash-client-list">
-                  {topClients.map((c, i) => (
-                    <div key={i} className="dash-client-row">
-                      <span className="dash-rank">#{i + 1}</span>
-                      <div className="dash-client-info">
-                        <span className="dash-client-name">{c.name}</span>
-                        <span className="dash-client-meta">{c.commissions} commission{c.commissions !== 1 ? "s" : ""}</span>
-                      </div>
-                      <div className="dash-client-right">
-                        <span className="dash-client-val">{formatEuro(c.lifetime_value)}</span>
-                        <HBar value={c.lifetime_value} max={maxClientVal} />
-                      </div>
-                    </div>
-                  ))}
+        {/* Hours by work type — this vs last month */}
+        <DashSection title="Hours by Work Type" hint="This month vs last">
+          <div className="dash-tsplit-legend">
+            <span><i style={{ background: "var(--espresso, #221B17)" }} /> Commissions</span>
+            <span><i style={{ background: "var(--accent)" }} /> Personal</span>
+            <span><i style={{ background: "var(--border-strong, #DDD0C3)" }} /> Admin</span>
+          </div>
+          <div className="dash-tsplit">
+            {wtMonths.map(m => {
+              const r = wtByMonth[m] || { personal: 0, commission: 0, admin: 0 };
+              const total = r.personal + r.commission + r.admin;
+              return (
+                <div key={m} className="dash-tsplit-row">
+                  <span className="dash-tsplit-lbl">{fmtMonth(m)}</span>
+                  <div className="dash-tsplit-track">
+                    {total > 0 && <>
+                      <div style={{ width: `${(r.commission / maxWtHours) * 100}%`, background: "var(--espresso, #221B17)" }} title={`${fmtH(r.commission)}h commissions`} />
+                      <div style={{ width: `${(r.personal   / maxWtHours) * 100}%`, background: "var(--accent)" }}            title={`${fmtH(r.personal)}h personal`} />
+                      <div style={{ width: `${(r.admin      / maxWtHours) * 100}%`, background: "var(--border-strong, #DDD0C3)" }} title={`${fmtH(r.admin)}h admin`} />
+                    </>}
+                  </div>
+                  <span className="dash-tsplit-val">{fmtH(total)}h</span>
                 </div>
-              )
-            }
-          </DashSection>
+              );
+            })}
+          </div>
+        </DashSection>
 
-          <DashSection title="Client Mix" hint="Of shipped commissions">
-            {totalClients === 0
-              ? <Empty msg="No client data yet." />
-              : (
-                <div className="dash-split">
-                  <div className="dash-split-item">
-                    <span className="dash-split-num">{clientSplit.new_clients}</span>
-                    <span className="dash-split-lbl">New clients</span>
+        {/* Income by category this month */}
+        <DashSection title="Income by Category" hint="Commissions delivered this month">
+          <div className="dash-metric-toggle">
+            {["all", "cosplay", "sports"].map(c => (
+              <button key={c}
+                className={`dash-metric-btn${monthlyCatFilter === c ? " active" : ""}`}
+                onClick={() => setMonthlyCatFilter(c)}>
+                {c === "all" ? "All" : c.charAt(0).toUpperCase() + c.slice(1)}
+              </button>
+            ))}
+          </div>
+          {incomeRows.length === 0
+            ? <Empty msg="No deliveries in this category this month." />
+            : (
+              <div className="dash-client-list">
+                {incomeRows.map((r, i) => (
+                  <div key={i} className="dash-client-row">
+                    <div className="dash-client-info">
+                      <span className="dash-client-name">{r.subtype}</span>
+                      <span className="dash-client-meta">
+                        <span className="badge">{r.category}</span> {r.count} order{r.count !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <div className="dash-client-right">
+                      <span className="dash-client-val">{formatEuro(r.revenue)}</span>
+                      <HBar value={r.revenue} max={maxIncome} />
+                    </div>
                   </div>
-                  <div className="dash-split-sep" />
-                  <div className="dash-split-item">
-                    <span className="dash-split-num">{clientSplit.repeat_clients}</span>
-                    <span className="dash-split-lbl">Repeat clients</span>
-                  </div>
-                  {clientSplit.repeat_clients > 0 && (
-                    <p className="dash-split-note">
-                      {Math.round((clientSplit.repeat_clients / totalClients) * 100)}% of your clients have returned.
-                    </p>
-                  )}
-                </div>
-              )
-            }
-          </DashSection>
-        </div>
+                ))}
+              </div>
+            )
+          }
+        </DashSection>
+
+        {/* Work in progress */}
+        <DashSection title="In Progress" hint="Active commissions · ⚠ idle 3+ days">
+          {activeWip.length === 0
+            ? <Empty msg="No commissions in progress right now." />
+            : (
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr><th>Commission</th><th>Client</th><th>Last worked</th><th>Balance due</th></tr>
+                  </thead>
+                  <tbody>
+                    {activeWip.map(w => {
+                      const idleDays = w.last_log
+                        ? Math.floor((Date.now() - new Date(w.last_log + "T00:00:00")) / 86400000)
+                        : null;
+                      const idle = idleDays === null || idleDays >= 3;
+                      return (
+                        <tr key={w.id}>
+                          <td>{w.title}</td>
+                          <td>{w.client ?? "—"}</td>
+                          <td className={idle ? "negative" : ""}>
+                            {w.last_log
+                              ? `${fmtWeek(w.last_log)} · ${idleDays}d ago${idle ? " ⚠" : ""}`
+                              : "not started ⚠"}
+                          </td>
+                          <td>{w.balance > 0 ? formatEuro(w.balance) : "paid"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          }
+        </DashSection>
       </>}
 
       {/* ──────────────── HISTORY TAB ──────────────── */}
@@ -783,10 +898,10 @@ export default function Dashboard() {
               <div className="dash-month-chart">
                 {histMonths.map((m, i) => (
                   <div key={m} className="dash-month-col">
-                    <span className="dash-month-val">{histValues[i] > 0 ? fmtMetric(historyMetric, histValues[i]) : ""}</span>
+                    <span className="dash-month-val">{histValues[i] !== 0 ? fmtMetric(historyMetric, histValues[i]) : ""}</span>
                     <div className="dash-month-track">
                       <div className="dash-month-fill"
-                        style={{ height: `${pct(histValues[i], histMax)}%`, background: histMetric.color }} />
+                        style={{ height: `${pct(Math.abs(histValues[i]), histMax)}%`, background: histMetric.color }} />
                     </div>
                     <span className="dash-month-lbl">{fmtMonth(m)}</span>
                   </div>
@@ -794,32 +909,167 @@ export default function Dashboard() {
               </div>
             </DashSection>
 
-            <DashSection title="Month by Month" hint="Newest first">
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Month</th><th>Shipped</th><th>Revenue</th>
-                      <th>Profit</th><th>Cash in</th><th>Hours</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...histMonths].reverse().map(m => (
-                      <tr key={m}>
-                        <td>{fmtMonth(m)}</td>
-                        <td>{histMaps.shipped[m] ?? 0}</td>
-                        <td>{formatEuro(histMaps.revenue[m] ?? 0)}</td>
-                        <td className={(histMaps.profit[m] ?? 0) >= 0 ? "positive" : "negative"}>
-                          {formatEuro(histMaps.profit[m] ?? 0)}
-                        </td>
-                        <td>{formatEuro(histMaps.cash[m] ?? 0)}</td>
-                        <td>{(histMaps.hours[m] ?? 0) > 0 ? `${histMaps.hours[m]}h` : "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            <DashSection title="Year over Year" hint="Cash received, by month of year">
+              {yoyYears.length === 0
+                ? <Empty msg="No payment history yet." />
+                : <GroupedBars columns={yoyColumns} series={yoySeries} fmt={v => formatEuro(v * 100)} />
+              }
             </DashSection>
+
+            <DashSection title="Throughput" hint="Commissions started vs delivered · last 12 months">
+              <GroupedBars columns={tputColumns} series={tputSeries} />
+            </DashSection>
+
+            {obs && (
+              <div className="dash-observation">
+                <strong>Observation:</strong> {obs}
+              </div>
+            )}
+
+            {/* Category breakdown (all-time) */}
+            <DashSection title="By Category" hint="Shipped commissions, all-time">
+              {noShipped
+                ? <Empty msg="Ship commissions to see category data." />
+                : (
+                  <div className="dash-cat-cards">
+                    {byCategory.map(cat => (
+                      <div key={cat.category} className="dash-round-card">
+                        <div className="dash-round-head">
+                          <span className="badge">{cat.category}</span>
+                          <span className="dash-round-count">{cat.count} job{cat.count !== 1 ? "s" : ""}</span>
+                        </div>
+                        <div className="dash-round-value">{formatEuro(cat.profit)}</div>
+                        <div className="dash-round-label">
+                          profit · {formatMargin(cat.profit, cat.revenue)} margin
+                        </div>
+                        <div className="dash-round-foot">
+                          <div className="dash-round-stat">
+                            <span className="dash-round-stat-val">{formatEuro(cat.revenue)}</span>
+                            <span className="dash-round-stat-lbl">revenue</span>
+                          </div>
+                          <div className="dash-round-stat">
+                            <span className="dash-round-stat-val">
+                              {cat.hours > 0 ? formatEuroPerHour(cat.profit, cat.hours) : "—"}
+                            </span>
+                            <span className="dash-round-stat-lbl">€/hour</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              }
+            </DashSection>
+
+            {/* Subtype breakdown (all-time) */}
+            <DashSection title="By Work Type" hint="Ranked by profit — ⚠ flags margin below 20%">
+              {noShipped
+                ? <Empty msg="Ship commissions to see work type data." />
+                : (
+                  <div className="table-wrap">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Type</th><th>Jobs</th><th>Revenue</th>
+                          <th>Profit</th><th>Margin</th><th>€/hour</th>
+                          <th style={{ width: "120px" }}>Profit bar</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bySubtype.map(s => {
+                          const thinMargin = s.revenue > 0 && (s.profit / s.revenue) < 0.2;
+                          return (
+                            <tr key={`${s.category}-${s.subtype}`}>
+                              <td>
+                                <span className="badge">{s.category}</span>{" "}
+                                {s.subtype}
+                                {thinMargin && <span className="dash-warn" title="Thin margin (under 20%)"> ⚠</span>}
+                              </td>
+                              <td>{s.count}</td>
+                              <td>{formatEuro(s.revenue)}</td>
+                              <td className={s.profit >= 0 ? "positive" : "negative"}>{formatEuro(s.profit)}</td>
+                              <td>{formatMargin(s.profit, s.revenue)}</td>
+                              <td>{s.hours > 0 ? formatEuroPerHour(s.profit, s.hours) : "—"}</td>
+                              <td><HBar value={s.profit} max={maxSubProfit} /></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              }
+            </DashSection>
+
+            {/* Weekly workload */}
+            <DashSection title="Weekly Hours" hint="Last 10 weeks">
+              {weeklyHours.length === 0
+                ? <Empty msg="No time logs yet." />
+                : (
+                  <div className="dash-week-chart">
+                    {weeklyHours.map((w, i) => (
+                      <div key={i} className="dash-week-col">
+                        <span className="dash-week-val">{w.hours > 0 ? `${w.hours}h` : ""}</span>
+                        <div className="dash-week-track">
+                          <div className="dash-week-fill" style={{ height: `${pct(w.hours, maxWeekHours)}%` }} />
+                        </div>
+                        <span className="dash-week-lbl">{fmtWeek(w.week_start)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              }
+            </DashSection>
+
+            {/* Client insights */}
+            <div className="dash-two-col">
+              <DashSection title="Top Clients" hint="By revenue">
+                {topClients.length === 0
+                  ? <Empty msg="No clients on shipped commissions yet." />
+                  : (
+                    <div className="dash-client-list">
+                      {topClients.map((c, i) => (
+                        <div key={i} className="dash-client-row">
+                          <span className="dash-rank">#{i + 1}</span>
+                          <div className="dash-client-info">
+                            <span className="dash-client-name">{c.name}</span>
+                            <span className="dash-client-meta">{c.commissions} commission{c.commissions !== 1 ? "s" : ""}</span>
+                          </div>
+                          <div className="dash-client-right">
+                            <span className="dash-client-val">{formatEuro(c.lifetime_value)}</span>
+                            <HBar value={c.lifetime_value} max={maxClientVal} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }
+              </DashSection>
+
+              <DashSection title="Client Mix" hint="Of shipped commissions">
+                {totalClients === 0
+                  ? <Empty msg="No client data yet." />
+                  : (
+                    <div className="dash-split">
+                      <div className="dash-split-item">
+                        <span className="dash-split-num">{clientSplit.new_clients}</span>
+                        <span className="dash-split-lbl">New clients</span>
+                      </div>
+                      <div className="dash-split-sep" />
+                      <div className="dash-split-item">
+                        <span className="dash-split-num">{clientSplit.repeat_clients}</span>
+                        <span className="dash-split-lbl">Repeat clients</span>
+                      </div>
+                      {clientSplit.repeat_clients > 0 && (
+                        <p className="dash-split-note">
+                          {Math.round((clientSplit.repeat_clients / totalClients) * 100)}% of your clients have returned.
+                        </p>
+                      )}
+                    </div>
+                  )
+                }
+              </DashSection>
+            </div>
           </>
         )}
       </>}
