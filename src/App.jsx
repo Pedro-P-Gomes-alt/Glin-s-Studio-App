@@ -11,6 +11,7 @@ import Calendar from "./pages/Calendar";
 import Board from "./pages/Board";
 import Clients from "./pages/Clients";
 import Quotes from "./pages/Quotes";
+import Todo from "./pages/Todo";
 import { query, execute } from "./db";
 
 // ── Font settings ──────────────────────────────────────────────────────
@@ -338,6 +339,7 @@ export default function App() {
     { id: "board",       label: "Board" },
     { id: "clients",     label: "Clients" },
     { id: "quotes",      label: "Quotes", badge: unseenQuotes > 0 ? unseenQuotes : null },
+    { id: "todo",        label: "To-Do" },
   ];
 
   return (
@@ -369,6 +371,7 @@ export default function App() {
         {page === "board"       && <Board />}
         {page === "clients"     && <Clients />}
         {page === "quotes"      && <Quotes config={quotesConfig} onUnseenChange={setUnseenQuotes} onRefresh={fetchAndStoreQuotes} />}
+        {page === "todo"        && <Todo />}
       </main>
 
       {whatsNew && (

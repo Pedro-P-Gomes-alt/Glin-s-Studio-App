@@ -255,7 +255,10 @@ export default function Quotes({ onUnseenChange, config, onRefresh }) {
           {quotes.map(q => {
             let data = {};
             try { data = JSON.parse(q.data); } catch {}
-            const name = data["Name"] || data["name"] || data["Full name"] || data["Your name"] || "Anonymous";
+            const emailKey = Object.keys(data).find(k => /e-?mail/i.test(k));
+            const name = (emailKey && data[emailKey])
+              || data["Name"] || data["name"] || data["Full name"] || data["Your name"]
+              || "Anonymous";
             const sm = STATUS_META[q.status] ?? STATUS_META.pending;
             return (
               <div

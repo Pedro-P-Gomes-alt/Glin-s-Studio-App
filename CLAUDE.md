@@ -87,11 +87,19 @@ The brief predates several features. Current reality:
 - **Projects are commission *or* personal** (`projects.project_type`, `personal_category`); personal
   projects have a nullable `category_id` and use the `payments` table for incremental income.
 - **Beyond the brief's 5 tables:** `subtasks`, `payments`, `materials`, `project_details`,
-  `project_measurements`, `project_images`, `quotes`, plus social (`social_snapshots`, `yt_videos`,
-  `ig_media`). Commission income can be tracked as `payments` rows, and projects carry `estimated_hours`.
+  `project_measurements`, `project_images`, `quotes`, `reminders`, plus social (`social_snapshots`,
+  `yt_videos`, `ig_media`). Commission income can be tracked as `payments` rows, and projects carry
+  `estimated_hours` (used for suggested-price readout and estimate-accuracy dashboard).
 - **Social dashboard exists** ([src/pages/Social.jsx](src/pages/Social.jsx) + the fetch logic in
   [src/App.jsx](src/App.jsx)): YouTube Data API + Instagram Graph API pulled directly from the webview,
   snapshotted daily into SQLite. The IG token auto-refreshes its 60-day expiry on fetch.
+- **Per-commission Workspace** ([src/components/Workspace.jsx](src/components/Workspace.jsx)): stores
+  client measurements, notes, and reference images per project in `project_details`,
+  `project_measurements`, and `project_images`. Opened read-only when clicking a commission row, or
+  in edit mode via the "Details" button.
+- **Personal project categories are hardcoded in JS**, not from the `categories` table. The four
+  types (`video`, `short`, `competition`, `other`) live in [src/pages/Projects.jsx](src/pages/Projects.jsx).
+  Only commission subtypes come from `categories`.
 - **Backup routine is not built yet.** The brief describes it; no code implements it.
 
 ---

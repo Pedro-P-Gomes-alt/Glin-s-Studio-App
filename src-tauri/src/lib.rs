@@ -75,6 +75,12 @@ pub fn run() {
             sql: include_str!("../migrations/012_materials_estimates.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 13,
+            description: "scratch to-do list",
+            sql: include_str!("../migrations/013_todos.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

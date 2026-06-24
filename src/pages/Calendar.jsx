@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { query, execute } from "../db";
-import { today, toIso } from "../utils/dates";
+import { today } from "../utils/dates";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTH_NAMES = [
@@ -12,9 +12,13 @@ function buildWeeks(year, month) {
   const first = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const startOffset = (first.getDay() + 6) % 7;
+  // Build ISO strings from local components — `new Date(...).toISOString()` is UTC
+  // and shifts the day back by one in positive-offset (e.g. summer/DST) timezones.
+  const mm = String(month + 1).padStart(2, "0");
   const days = [
     ...Array(startOffset).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) => toIso(new Date(year, month, i + 1))),
+    ...Array.from({ length: daysInMonth }, (_, i) =>
+      `${year}-${mm}-${String(i + 1).padStart(2, "0")}`),
   ];
   while (days.length % 7 !== 0) days.push(null);
   const weeks = [];
