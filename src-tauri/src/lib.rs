@@ -87,6 +87,12 @@ pub fn run() {
             sql: include_str!("../migrations/014_ready.sql"),
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 15,
+            description: "in-app bug / feature reports",
+            sql: include_str!("../migrations/015_bug_reports.sql"),
+            kind: MigrationKind::Up,
+        },
     ];
 
     tauri::Builder::default()

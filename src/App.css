@@ -3698,3 +3698,209 @@ textarea:focus-visible {
   color: var(--muted);
 }
 .daily-alert-row-meta.is-late { color: var(--negative); }
+
+/* ── Bug / feature reports ────────────────────────────────────────── */
+.cal-legend-dot.report { background: var(--brand-dark, #8A5A6B); }
+
+.report-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.report-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+  transition: color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.report-tab:hover { color: var(--text); }
+.report-tab.active { color: var(--text); border-bottom-color: var(--pink-rich); }
+
+.report-tab-count {
+  display: inline-block;
+  margin-left: 5px;
+  background: var(--surface-2);
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 0.7rem;
+}
+
+.report-body { padding: 20px 24px; }
+
+.report-warning {
+  background: var(--pink-light);
+  border: 1px solid var(--pink-border);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  margin: 0 0 16px;
+}
+
+.report-form textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+}
+
+.report-kind-row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.report-kind {
+  flex: 1 1 140px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  padding: 9px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: left;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.report-kind:hover { background: var(--pink-light); }
+.report-kind.active { border-color: var(--pink-rich); background: var(--pink-light); font-weight: 700; }
+.report-kind-icon { font-size: 1rem; flex-shrink: 0; }
+
+.report-file-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+
+.report-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  background: var(--surface-2);
+  border-radius: var(--r-xs);
+  padding: 3px 6px;
+  font-size: 0.74rem;
+  overflow: hidden;
+}
+.report-file-chip button {
+  background: none; border: none; cursor: pointer;
+  color: var(--muted); padding: 0 2px; line-height: 1; flex-shrink: 0;
+}
+
+.report-result {
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 12px 0 0;
+}
+.report-result.is-ok { color: var(--positive, #1E6B43); }
+
+/* History */
+.report-list { display: flex; flex-direction: column; gap: 10px; }
+
+.report-item {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 11px 13px;
+  background: var(--surface);
+}
+
+.report-item-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.report-item-icon { flex-shrink: 0; }
+.report-item-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.report-item-meta {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.report-item-desc {
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 7px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.report-item-reply {
+  margin-top: 9px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--pink-rich);
+  background: var(--pink-light);
+  border-radius: 0 var(--r-xs) var(--r-xs) 0;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+.report-item-reply-label {
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+
+.report-item-queued {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+  flex-wrap: wrap;
+}
+.report-item-error { font-size: 0.72rem; color: var(--negative); }
+
+/* Status chips */
+.report-status {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.report-status--open     { background: var(--surface-2); color: var(--muted); }
+.report-status--progress { background: #FFF4E0; color: #8A5A12; }
+.report-status--fixed    { background: #E6F5EC; color: #1E6B43; }
+.report-status--wontfix  { background: var(--surface-2); color: var(--muted); text-decoration: line-through; }
+.report-status--queued   { background: #FEF2F2; color: #9B2C2C; }
+
+/* Setup tab */
+.report-setup .settings-hint { margin-bottom: 10px; }
+.report-script {
+  margin-top: 10px;
+  max-height: 340px;
+  overflow: auto;
+  background: var(--black);
+  color: #E8E8E8;
+  border-radius: var(--r-sm);
+  padding: 12px 14px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+/* Two stacked footer buttons: only the first should absorb the free space. */
+.sidebar-settings-btn + .sidebar-settings-btn { margin-top: 0; border-top: none; }
+.sidebar-report-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}

@@ -14,6 +14,11 @@ import Quotes from "./pages/Quotes";
 import Todo from "./pages/Todo";
 import { query, execute } from "./db";
 import { today, addDays } from "./utils/dates";
+import ReportPanel from "./components/ReportPanel";
+import {
+  loadReportsConfig, saveReportsConfig, flushUnsentReports,
+  syncReportStatuses, countUnseenStatusChanges, REPORT_STATUS, hasBuiltInEndpoint,
+} from "./utils/reports";
 
 // ── Font settings ──────────────────────────────────────────────────────
 const FONT_SIZES    = { compact: "13px", default: "15px", comfortable: "17px" };
@@ -36,17 +41,18 @@ const DAILY_ALERT_KEY       = "glins_daily_alert_seen";
 // release so Glin sees what changed. The popup fires whenever the running
 // version differs from the last one she dismissed (stored in localStorage).
 const WHATS_NEW = [
+  { title: "Tell me when something is wrong",
+    body: "There's a new “Report a problem” button at the bottom of the menu. Use it whenever something breaks, or when the app is missing something you wish it did — write what happened, add screenshots if it helps, and send. It reaches Pedro directly. Once he's looked at it, the status changes right there in the app, so you can see when something has been fixed." },
   { title: "The calendar no longer shifts around",
     body: "Long event or project names used to stretch a column and knock the whole grid out of line. The columns are now locked: long names shorten with a “…” instead, and a busy day shows a “+2 more” chip. Click any day to see everything on it — events, deadlines, reminders and the hours you logged." },
   { title: "Month and week views",
     body: "Switch between Month and Week at the top right of the calendar, and jump back with the Today button. Week view gives each day a tall column so you can see everything at once." },
-  { title: "Deadline warnings",
-    body: "When you open the app you'll get a heads-up about any order whose deadline is within a week, or already past, as long as it isn't marked Ready, Shipped or Delivered." },
-  { title: "Reminder alerts",
-    body: "The same popup lists the reminders due today and any you haven't ticked off from earlier days. It appears once a day and you can dismiss it or jump straight to the calendar." },
+  { title: "Deadline and reminder alerts",
+    body: "Every time you open the app you'll get a heads-up about any order whose deadline is within a week, or already past, plus the reminders due today and any you haven't ticked off. Orders marked Ready, Shipped or Delivered are left out." },
   { title: "Fixed the blank app icon",
     body: "The app icon showed up as a white square on some PCs. The icon file has been rebuilt with every size Windows asks for." },
 ];
+
 
 
 function ls(key, def) {
@@ -55,11 +61,12 @@ function ls(key, def) {
 }
 
 // ── Settings panel ─────────────────────────────────────────────────────
-function SettingsPanel({ settings, quotesConfig,
-                         onChangeSettings, onChangeQuotes, onClose }) {
+function SettingsPanel({ settings, quotesConfig, reportsConfig,
+                         onChangeSettings, onChangeQuotes, onChangeReports, onClose }) {
 
   function setFont(k, v)  { const n = { ...settings, [k]: v };        onChangeSettings(n); localStorage.setItem("glins_settings", JSON.stringify(n)); }
   function setQuote(k, v) { const n = { ...quotesConfig, [k]: v };    onChangeQuotes(n);   localStorage.setItem("glins_quotes_config", JSON.stringify(n)); }
+  function setReport(k, v){ const n = { ...reportsConfig, [k]: v };   onChangeReports(n);  saveReportsConfig(n); }
 
   const [cats, setCats] = useState([]);
   const [newSub, setNewSub] = useState({ cosplay: "", sports: "" });
@@ -199,6 +206,28 @@ function SettingsPanel({ settings, quotesConfig,
             </div>
           </div>
 
+          {/* Bug reports */}
+          <div className="settings-section">
+            <div className="settings-section-title">Bug reports — Google Sheets</div>
+            <p className="settings-hint" style={{ marginBottom: 8 }}>
+              {hasBuiltInEndpoint()
+                ? "Already set up in this build — leave these blank unless you're pointing the app at a different script."
+                : "Where \"Report a problem\" sends to. The Setup tab in that panel has the script to paste."}
+            </p>
+            <div className="field">
+              <label>Apps Script URL</label>
+              <input type="url" value={reportsConfig.scriptUrl}
+                onChange={e => setReport("scriptUrl", e.target.value)}
+                placeholder="https://script.google.com/macros/s/…/exec" />
+            </div>
+            <div className="field" style={{ marginTop: 8 }}>
+              <label>Secret token</label>
+              <input type="password" value={reportsConfig.token}
+                onChange={e => setReport("token", e.target.value)}
+                placeholder="Passphrase from your script" />
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
@@ -239,18 +268,22 @@ function deadlineLabel(daysLeft) {
   return `in ${daysLeft} days`;
 }
 
-function DailyAlert({ deadlines, reminders, onView, onDismiss }) {
-  const both = deadlines.length > 0 && reminders.length > 0;
-  const title = both
+function DailyAlert({ deadlines, reminders, updates = [], onView, onDismiss }) {
+  const sections = [deadlines.length > 0, reminders.length > 0, updates.length > 0].filter(Boolean).length;
+  const title = sections > 1
     ? "Today's heads-up"
     : deadlines.length > 0
       ? (deadlines.length === 1 ? "A deadline is coming up" : `${deadlines.length} deadlines coming up`)
-      : (reminders.length === 1 ? "You have a reminder" : `${reminders.length} reminders for today`);
+      : reminders.length > 0
+        ? (reminders.length === 1 ? "You have a reminder" : `${reminders.length} reminders for today`)
+        : (updates.length === 1 ? "News on something you reported" : "News on your reports");
 
   return (
     <div className="dialog-overlay quote-alert-overlay">
       <div className="dialog daily-alert" onClick={e => e.stopPropagation()}>
-        <div className="quote-alert-icon">{deadlines.length > 0 ? "⏳" : "🔔"}</div>
+        <div className="quote-alert-icon">
+          {deadlines.length > 0 ? "⏳" : reminders.length > 0 ? "🔔" : "🛠"}
+        </div>
         <h3 className="quote-alert-title">{title}</h3>
 
         {deadlines.length > 0 && (
@@ -283,9 +316,28 @@ function DailyAlert({ deadlines, reminders, onView, onDismiss }) {
           </div>
         )}
 
+        {updates.length > 0 && (
+          <div className="daily-alert-section">
+            <div className="daily-alert-section-title">Your reports</div>
+            {updates.map(u => (
+              <div key={u.id} className="daily-alert-row">
+                <span className="cal-legend-dot report" />
+                <span className="daily-alert-row-text">{u.title}</span>
+                <span className={`report-status ${REPORT_STATUS[u.status]?.cls ?? ""}`}>
+                  {u.fixed_version
+                    ? `Fixed in v${u.fixed_version}`
+                    : (REPORT_STATUS[u.status]?.label ?? u.status)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="form-actions quote-alert-actions">
           <button className="btn-ghost" onClick={onDismiss}>Dismiss</button>
-          <button className="btn-primary" onClick={onView}>Open calendar</button>
+          <button className="btn-primary" onClick={onView}>
+            {deadlines.length || reminders.length ? "Open calendar" : "See my reports"}
+          </button>
         </div>
       </div>
     </div>
@@ -328,6 +380,9 @@ export default function App() {
   const [toast, setToast]             = useState(null);
   const [whatsNew, setWhatsNew]       = useState(null); // version string when popup should show
   const [dailyAlert, setDailyAlert]   = useState(null);
+  const [reportsConfig, setReportsConfig] = useState(() => loadReportsConfig());
+  const [showReport, setShowReport]   = useState(false);
+  const [reportBadge, setReportBadge] = useState(0);
   const quotePollRef = useRef(null);
   const alertPollRef = useRef(null);
 
@@ -371,20 +426,42 @@ export default function App() {
     return () => clearInterval(quotePollRef.current);
   }, [quotesConfig.scriptUrl, quotesConfig.token]);
 
-  // Deadline + reminder alerts: check on start, then hourly so it re-fires
-  // after midnight if the app is left open.
+  // Bug reports: flush anything queued from an offline session, then pull the
+  // statuses you set in the Sheet back down.
   useEffect(() => {
-    checkDailyAlerts();
-    alertPollRef.current = setInterval(checkDailyAlerts, 60 * 60 * 1000);
+    // Debounced: this effect re-runs on every keystroke in the Settings token
+    // field, and each run would otherwise hit the endpoint with a half-typed
+    // token.
+    const first = setTimeout(syncReports, 1500);
+    const poll  = setInterval(syncReports, 60 * 60 * 1000);
+    return () => { clearTimeout(first); clearInterval(poll); };
+  }, [reportsConfig.scriptUrl, reportsConfig.token]);
+
+  async function syncReports() {
+    try {
+      await flushUnsentReports(reportsConfig);
+      await syncReportStatuses(reportsConfig);
+    } catch (err) { console.warn("Report sync failed:", err); }
+    try { setReportBadge(await countUnseenStatusChanges()); } catch {}
+  }
+
+  // Deadline + reminder alerts: always shown on launch, then re-checked
+  // hourly (honouring the dismissal) so it fires again after midnight if the
+  // app is left open for days.
+  useEffect(() => {
+    checkDailyAlerts({ force: true });
+    alertPollRef.current = setInterval(() => checkDailyAlerts(), 60 * 60 * 1000);
     return () => clearInterval(alertPollRef.current);
   }, []);
 
   // ── Deadline / reminder alerts ─────────────────────────────────────
-  async function checkDailyAlerts() {
+  // `force` bypasses the once-a-day dismissal — used on launch, so reopening
+  // the app always re-surfaces whatever is still outstanding.
+  async function checkDailyAlerts({ force = false } = {}) {
     const t = today();
-    if (localStorage.getItem(DAILY_ALERT_KEY) === t) return;
+    if (!force && localStorage.getItem(DAILY_ALERT_KEY) === t) return;
     try {
-      const [deadlines, reminders] = await Promise.all([
+      const [deadlines, reminders, updates] = await Promise.all([
         // Open commissions whose planned end is a week out or already past.
         // Anything finished (ready / shipped / delivered) is no longer urgent.
         query(
@@ -403,9 +480,19 @@ export default function App() {
             ORDER BY remind_on ASC, id ASC`,
           [t]
         ),
+        // Reports whose status moved in the Sheet since she last looked.
+        query(
+          `SELECT id, title, status, reply, fixed_version
+             FROM bug_reports WHERE status_seen = 0 ORDER BY id DESC`
+        ),
       ]);
-      if (deadlines.length || reminders.length) {
-        setDailyAlert({ date: t, deadlines, reminders: reminders.map(r => ({ ...r, _today: t })) });
+      if (deadlines.length || reminders.length || updates.length) {
+        setDailyAlert({
+          date: t,
+          deadlines,
+          reminders: reminders.map(r => ({ ...r, _today: t })),
+          updates,
+        });
       } else {
         localStorage.setItem(DAILY_ALERT_KEY, t); // nothing to say today
       }
@@ -476,6 +563,10 @@ export default function App() {
             </li>
           ))}
         </ul>
+        <button className="sidebar-settings-btn sidebar-report-btn" onClick={() => setShowReport(true)}>
+          🐞 Report a problem
+          {reportBadge > 0 && <span className="nav-badge">{reportBadge}</span>}
+        </button>
         <button className="sidebar-settings-btn" onClick={() => setShowSettings(true)}>⚙ Settings</button>
       </nav>
 
@@ -499,8 +590,22 @@ export default function App() {
         <DailyAlert
           deadlines={dailyAlert.deadlines}
           reminders={dailyAlert.reminders}
-          onView={() => { setPage("calendar"); dismissDailyAlert(); }}
+          updates={dailyAlert.updates}
+          onView={() => {
+            if (dailyAlert.deadlines.length || dailyAlert.reminders.length) setPage("calendar");
+            else setShowReport(true);
+            dismissDailyAlert();
+          }}
           onDismiss={dismissDailyAlert}
+        />
+      )}
+
+      {showReport && (
+        <ReportPanel
+          config={reportsConfig}
+          currentPage={page}
+          onClose={() => setShowReport(false)}
+          onChange={async () => { try { setReportBadge(await countUnseenStatusChanges()); } catch {} }}
         />
       )}
 
@@ -516,8 +621,10 @@ export default function App() {
         <SettingsPanel
           settings={settings}
           quotesConfig={quotesConfig}
+          reportsConfig={reportsConfig}
           onChangeSettings={setSettings}
           onChangeQuotes={setQuotesConfig}
+          onChangeReports={setReportsConfig}
           onClose={() => setShowSettings(false)}
         />
       )}
