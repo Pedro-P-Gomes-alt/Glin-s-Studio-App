@@ -13,6 +13,7 @@ import Clients from "./pages/Clients";
 import Quotes from "./pages/Quotes";
 import Todo from "./pages/Todo";
 import { query, execute } from "./db";
+import { today, addDays } from "./utils/dates";
 
 // ── Font settings ──────────────────────────────────────────────────────
 const FONT_SIZES    = { compact: "13px", default: "15px", comfortable: "17px" };
@@ -28,19 +29,25 @@ const FONT_FAMILY_LABELS = {
 
 const DEFAULT_SETTINGS      = { fontSize: "default", fontFamily: "system" };
 const DEFAULT_QUOTES_CONFIG = { scriptUrl: "", token: "" };
+const DAILY_ALERT_KEY       = "glins_daily_alert_seen";
 
 // ── What's new ──────────────────────────────────────────────────────────
 // Shown once after the app updates to a new version. Refresh this list each
 // release so Glin sees what changed. The popup fires whenever the running
 // version differs from the last one she dismissed (stored in localStorage).
 const WHATS_NEW = [
-  { title: "A “Ready” lane on the board",
-    body: "Orders you've finished but haven't sent yet now wait in a new Ready column. Mark an order as Ready from Commissions, then press Shipped on the board once it's actually posted." },
-  { title: "Ready orders stay out of time tracking",
-    body: "Once an order is marked Ready it disappears from the time-log picker, so you can't accidentally log more hours against a finished job." },
-  { title: "Rebuilt dashboard",
-    body: "Three tabs — Monthly, History and Personal. See this month versus last at a glance, long-term trends with year-over-year and throughput, and where your personal and content time goes." },
+  { title: "The calendar no longer shifts around",
+    body: "Long event or project names used to stretch a column and knock the whole grid out of line. The columns are now locked: long names shorten with a “…” instead, and a busy day shows a “+2 more” chip. Click any day to see everything on it — events, deadlines, reminders and the hours you logged." },
+  { title: "Month and week views",
+    body: "Switch between Month and Week at the top right of the calendar, and jump back with the Today button. Week view gives each day a tall column so you can see everything at once." },
+  { title: "Deadline warnings",
+    body: "When you open the app you'll get a heads-up about any order whose deadline is within a week, or already past, as long as it isn't marked Ready, Shipped or Delivered." },
+  { title: "Reminder alerts",
+    body: "The same popup lists the reminders due today and any you haven't ticked off from earlier days. It appears once a day and you can dismiss it or jump straight to the calendar." },
+  { title: "Fixed the blank app icon",
+    body: "The app icon showed up as a white square on some PCs. The icon file has been rebuilt with every size Windows asks for." },
 ];
+
 
 function ls(key, def) {
   try { const r = localStorage.getItem(key); return r ? { ...def, ...JSON.parse(r) } : def; }
@@ -221,6 +228,70 @@ function QuoteAlert({ count, onView, onDismiss }) {
   );
 }
 
+// ── Daily alert popup — deadlines within a week + today's reminders ─────
+// Same "must be dismissed" shape as QuoteAlert. Fires once per day; the
+// dismissal is remembered under DAILY_ALERT_KEY so it doesn't nag on every
+// page change, but re-fires after midnight (the poll re-checks hourly).
+function deadlineLabel(daysLeft) {
+  if (daysLeft < 0)  return `${-daysLeft} day${daysLeft === -1 ? "" : "s"} overdue`;
+  if (daysLeft === 0) return "due today";
+  if (daysLeft === 1) return "due tomorrow";
+  return `in ${daysLeft} days`;
+}
+
+function DailyAlert({ deadlines, reminders, onView, onDismiss }) {
+  const both = deadlines.length > 0 && reminders.length > 0;
+  const title = both
+    ? "Today's heads-up"
+    : deadlines.length > 0
+      ? (deadlines.length === 1 ? "A deadline is coming up" : `${deadlines.length} deadlines coming up`)
+      : (reminders.length === 1 ? "You have a reminder" : `${reminders.length} reminders for today`);
+
+  return (
+    <div className="dialog-overlay quote-alert-overlay">
+      <div className="dialog daily-alert" onClick={e => e.stopPropagation()}>
+        <div className="quote-alert-icon">{deadlines.length > 0 ? "⏳" : "🔔"}</div>
+        <h3 className="quote-alert-title">{title}</h3>
+
+        {deadlines.length > 0 && (
+          <div className="daily-alert-section">
+            <div className="daily-alert-section-title">Deadlines within a week</div>
+            {deadlines.map(d => (
+              <div key={d.id} className="daily-alert-row">
+                <span className={`cal-legend-dot deadline`} />
+                <span className="daily-alert-row-text">{d.title}</span>
+                <span className={`daily-alert-row-meta${d.days_left < 0 ? " is-late" : ""}`}>
+                  {deadlineLabel(d.days_left)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {reminders.length > 0 && (
+          <div className="daily-alert-section">
+            <div className="daily-alert-section-title">Reminders</div>
+            {reminders.map(r => (
+              <div key={r.id} className="daily-alert-row">
+                <span className="cal-legend-dot reminder" />
+                <span className="daily-alert-row-text">{r.title}</span>
+                {r.remind_on < r._today && (
+                  <span className="daily-alert-row-meta is-late">overdue</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="form-actions quote-alert-actions">
+          <button className="btn-ghost" onClick={onDismiss}>Dismiss</button>
+          <button className="btn-primary" onClick={onView}>Open calendar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── What's-new popup (shown once per new version) ───────────────────────
 function WhatsNewDialog({ version, items, onClose }) {
   return (
@@ -256,7 +327,9 @@ export default function App() {
   const [unseenQuotes, setUnseenQuotes] = useState(0);
   const [toast, setToast]             = useState(null);
   const [whatsNew, setWhatsNew]       = useState(null); // version string when popup should show
+  const [dailyAlert, setDailyAlert]   = useState(null);
   const quotePollRef = useRef(null);
+  const alertPollRef = useRef(null);
 
   // Check for app updates once on startup
   useEffect(() => {
@@ -297,6 +370,52 @@ export default function App() {
     quotePollRef.current = setInterval(fetchAndStoreQuotes, 60 * 60 * 1000);
     return () => clearInterval(quotePollRef.current);
   }, [quotesConfig.scriptUrl, quotesConfig.token]);
+
+  // Deadline + reminder alerts: check on start, then hourly so it re-fires
+  // after midnight if the app is left open.
+  useEffect(() => {
+    checkDailyAlerts();
+    alertPollRef.current = setInterval(checkDailyAlerts, 60 * 60 * 1000);
+    return () => clearInterval(alertPollRef.current);
+  }, []);
+
+  // ── Deadline / reminder alerts ─────────────────────────────────────
+  async function checkDailyAlerts() {
+    const t = today();
+    if (localStorage.getItem(DAILY_ALERT_KEY) === t) return;
+    try {
+      const [deadlines, reminders] = await Promise.all([
+        // Open commissions whose planned end is a week out or already past.
+        // Anything finished (ready / shipped / delivered) is no longer urgent.
+        query(
+          `SELECT id, title, planned_end,
+                  CAST(julianday(planned_end) - julianday(?) AS INTEGER) AS days_left
+             FROM projects
+            WHERE planned_end IS NOT NULL
+              AND delivered = 0 AND shipped = 0 AND ready = 0
+              AND planned_end <= ?
+            ORDER BY planned_end ASC`,
+          [t, addDays(t, 7)]
+        ),
+        query(
+          `SELECT id, title, remind_on FROM reminders
+            WHERE done = 0 AND remind_on <= ?
+            ORDER BY remind_on ASC, id ASC`,
+          [t]
+        ),
+      ]);
+      if (deadlines.length || reminders.length) {
+        setDailyAlert({ date: t, deadlines, reminders: reminders.map(r => ({ ...r, _today: t })) });
+      } else {
+        localStorage.setItem(DAILY_ALERT_KEY, t); // nothing to say today
+      }
+    } catch (err) { console.warn("Daily alert check failed:", err); }
+  }
+
+  function dismissDailyAlert() {
+    if (dailyAlert) localStorage.setItem(DAILY_ALERT_KEY, dailyAlert.date);
+    setDailyAlert(null);
+  }
 
   // ── Quotes helpers ─────────────────────────────────────────────────
   async function refreshUnseenCount() {
@@ -374,6 +493,15 @@ export default function App() {
 
       {whatsNew && (
         <WhatsNewDialog version={whatsNew} items={WHATS_NEW} onClose={dismissWhatsNew} />
+      )}
+
+      {!toast && dailyAlert && (
+        <DailyAlert
+          deadlines={dailyAlert.deadlines}
+          reminders={dailyAlert.reminders}
+          onView={() => { setPage("calendar"); dismissDailyAlert(); }}
+          onDismiss={dismissDailyAlert}
+        />
       )}
 
       {toast && (

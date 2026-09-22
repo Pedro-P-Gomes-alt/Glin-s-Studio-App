@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { query, execute } from "../db";
-import { today } from "../utils/dates";
+import { today, addDays, formatLong } from "../utils/dates";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTH_NAMES = [
@@ -8,22 +8,40 @@ const MONTH_NAMES = [
   "July","August","September","October","November","December",
 ];
 
-function buildWeeks(year, month) {
+// Month view is a fixed-size grid: anything that doesn't fit is collapsed into
+// a "+N more" chip that opens the day panel. The grid never grows or reflows.
+const MAX_MONTH_LANES = 2;   // spanning event bars shown per week row
+const MAX_MONTH_CHIPS = 3;   // in-cell chips (deadlines + reminders) per day
+
+function mondayOf(iso) {
+  const d = new Date(iso + "T00:00:00");
+  return addDays(iso, -((d.getDay() + 6) % 7));
+}
+
+function buildMonthWeeks(year, month) {
   const first = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const startOffset = (first.getDay() + 6) % 7;
   // Build ISO strings from local components — `new Date(...).toISOString()` is UTC
   // and shifts the day back by one in positive-offset (e.g. summer/DST) timezones.
   const mm = String(month + 1).padStart(2, "0");
+  const inMonth = Array.from({ length: daysInMonth }, (_, i) =>
+    `${year}-${mm}-${String(i + 1).padStart(2, "0")}`);
+  // Pad with the neighbouring months' days rather than blanks: every week row
+  // is then a full 7 columns, so spanning bars never have to clamp to a hole.
   const days = [
-    ...Array(startOffset).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) =>
-      `${year}-${mm}-${String(i + 1).padStart(2, "0")}`),
+    ...Array.from({ length: startOffset }, (_, i) => addDays(inMonth[0], i - startOffset)),
+    ...inMonth,
   ];
-  while (days.length % 7 !== 0) days.push(null);
+  while (days.length % 7 !== 0) days.push(addDays(days[days.length - 1], 1));
   const weeks = [];
   for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
   return weeks;
+}
+
+function buildWeekDays(anchorIso) {
+  const start = mondayOf(anchorIso);
+  return Array.from({ length: 7 }, (_, i) => addDays(start, i));
 }
 
 function buildLanes(weekDays, items) {
@@ -55,45 +73,61 @@ function buildLanes(weekDays, items) {
   return lanes;
 }
 
-function DayCell({ date, isToday, isVacation, hoursLogged, deadlines, reminders,
-                  onClick, onToggleReminder, onDeleteReminder }) {
+function DayCell({ date, isToday, isOtherMonth, isVacation, hoursLogged, deadlines, reminders,
+                  expanded, onClick, onToggleReminder, onDeleteReminder }) {
   if (!date) return <div className="cal-day-cell cal-day-empty" />;
+
+  const chips = [
+    ...deadlines.map(d => ({ kind: "deadline", key: `d${d.id}`, item: d })),
+    ...reminders.map(r => ({ kind: "reminder", key: `r${r.id}`, item: r })),
+  ];
+  // In the month grid only a fixed number of chips fit; the rest collapse.
+  const overflow = expanded ? 0 : Math.max(0, chips.length - MAX_MONTH_CHIPS);
+  const shown = overflow > 0 ? chips.slice(0, MAX_MONTH_CHIPS - 1) : chips;
+
   return (
     <div
       className={[
         "cal-day-cell",
         isToday ? "is-today" : "",
         isVacation ? "is-vacation" : "",
+        isOtherMonth ? "is-other-month" : "",
       ].join(" ")}
       onClick={() => onClick(date)}
     >
       <div className="cal-day-top">
         <span className="cal-day-num">{parseInt(date.slice(8))}</span>
-        {isVacation && <span className="cal-off-badge">off</span>}
+        <span className="cal-day-top-right">
+          {!isVacation && hoursLogged > 0 && (
+            <span className="cal-hours-dot">
+              {hoursLogged % 1 === 0 ? hoursLogged : hoursLogged.toFixed(1)}h
+            </span>
+          )}
+          {isVacation && <span className="cal-off-badge">off</span>}
+        </span>
       </div>
       <div className="cal-day-body">
-        {deadlines.map(d => (
-          <div key={d.id} className="cal-deadline-pill" title={d.title}>
-            ⚑ {d.title}
+        {shown.map(c => c.kind === "deadline" ? (
+          <div key={c.key} className="cal-chip cal-chip--deadline" title={c.item.title}>
+            <span className="cal-chip-text">⚑ {c.item.title}</span>
           </div>
-        ))}
-        {reminders.map(r => (
-          <div key={r.id} className={`cal-reminder-pill${r.done ? " is-done" : ""}`} title={r.title}>
-            <button className="cal-reminder-check"
-              onClick={e => { e.stopPropagation(); onToggleReminder(r); }}
-              title={r.done ? "Mark not done" : "Mark done"}>
-              {r.done ? "☑" : "☐"}
+        ) : (
+          <div key={c.key}
+            className={`cal-chip cal-chip--reminder${c.item.done ? " is-done" : ""}`}
+            title={c.item.title}>
+            <button className="cal-chip-btn"
+              onClick={e => { e.stopPropagation(); onToggleReminder(c.item); }}
+              title={c.item.done ? "Mark not done" : "Mark done"}>
+              {c.item.done ? "☑" : "☐"}
             </button>
-            <span className="cal-reminder-text">{r.title}</span>
-            <button className="cal-reminder-del"
-              onClick={e => { e.stopPropagation(); onDeleteReminder(r.id); }}
+            <span className="cal-chip-text">{c.item.title}</span>
+            <button className="cal-chip-btn cal-chip-del"
+              onClick={e => { e.stopPropagation(); onDeleteReminder(c.item.id); }}
               title="Delete">✕</button>
           </div>
         ))}
-        {!isVacation && hoursLogged > 0 && (
-          <div className="cal-hours-dot">
-            {hoursLogged % 1 === 0 ? hoursLogged : hoursLogged.toFixed(1)}h
-          </div>
+        {overflow > 0 && (
+          <div className="cal-chip cal-chip--more">+{overflow} more</div>
         )}
       </div>
     </div>
@@ -111,7 +145,7 @@ function EventBar({ item, cStart, cEnd, startsHere, endsHere, kind, onDelete }) 
       style={{ gridColumn: `${cStart + 1} / ${cEnd + 2}` }}
       title={item.title}
     >
-      {startsHere && <span className="cal-bar-title">{item.title}</span>}
+      <span className="cal-bar-title">{startsHere ? item.title : " "}</span>
       <button
         className="cal-bar-delete"
         onClick={e => { e.stopPropagation(); onDelete(item.id); }}
@@ -121,21 +155,35 @@ function EventBar({ item, cStart, cEnd, startsHere, endsHere, kind, onDelete }) 
   );
 }
 
-function WeekRow({ weekDays, vacationEvents, nonVacationEvents, logsByDate, deadlinesByDate,
-                  remindersByDate, todayStr, onDayClick, onDeleteEvent, onToggleReminder, onDeleteReminder }) {
-  const vacLanes = buildLanes(weekDays, vacationEvents);
-  const evtLanes = buildLanes(weekDays, nonVacationEvents);
+function WeekRow({ weekDays, monthIndex, vacationEvents, nonVacationEvents, logsByDate,
+                  deadlinesByDate, remindersByDate, todayStr, expanded,
+                  onDayClick, onDeleteEvent, onToggleReminder, onDeleteReminder }) {
+  // Vacations first, then everything else — one lane stack, so a week row's
+  // height only depends on the lane count, never on the text inside a bar.
+  const allLanes = [
+    ...buildLanes(weekDays, vacationEvents).map(l => ({ lane: l, kind: "vacation" })),
+    ...buildLanes(weekDays, nonVacationEvents).map(l => ({ lane: l, kind: "event" })),
+  ];
+  const laneCap = expanded ? allLanes.length : MAX_MONTH_LANES;
+  const visibleLanes = allLanes.slice(0, laneCap);
+  const hiddenLanes = allLanes.length - visibleLanes.length;
+
   return (
-    <div className="cal-week">
-      {vacLanes.map((lane, li) => (
-        <div key={`vac-${li}`} className="cal-lane">
-          {lane.map(({ item, cStart, cEnd, startsHere, endsHere }) => (
-            <EventBar key={item.id} item={item} cStart={cStart} cEnd={cEnd}
-              startsHere={startsHere} endsHere={endsHere}
-              kind="vacation" onDelete={onDeleteEvent} />
-          ))}
-        </div>
-      ))}
+    <div className={`cal-week${expanded ? " is-expanded" : ""}`}>
+      <div className="cal-lanes">
+        {visibleLanes.map(({ lane, kind }, li) => (
+          <div key={li} className="cal-lane">
+            {lane.map(({ item, cStart, cEnd, startsHere, endsHere }) => (
+              <EventBar key={item.id} item={item} cStart={cStart} cEnd={cEnd}
+                startsHere={startsHere} endsHere={endsHere}
+                kind={kind} onDelete={onDeleteEvent} />
+            ))}
+          </div>
+        ))}
+        {hiddenLanes > 0 && (
+          <div className="cal-lane-more">+{hiddenLanes} more event{hiddenLanes > 1 ? "s" : ""}</div>
+        )}
+      </div>
       <div className="cal-days-row">
         {weekDays.map((date, i) => {
           const isVacation = date ? vacationEvents.some(v => v.start <= date && v.end >= date) : false;
@@ -144,10 +192,13 @@ function WeekRow({ weekDays, vacationEvents, nonVacationEvents, logsByDate, dead
               key={i}
               date={date}
               isToday={date === todayStr}
+              isOtherMonth={!!date && monthIndex != null &&
+                            parseInt(date.slice(5, 7), 10) - 1 !== monthIndex}
               isVacation={isVacation}
               hoursLogged={date ? (logsByDate[date] ?? 0) : 0}
               deadlines={date ? (deadlinesByDate[date] ?? []) : []}
               reminders={date ? (remindersByDate[date] ?? []) : []}
+              expanded={expanded}
               onClick={onDayClick}
               onToggleReminder={onToggleReminder}
               onDeleteReminder={onDeleteReminder}
@@ -155,31 +206,21 @@ function WeekRow({ weekDays, vacationEvents, nonVacationEvents, logsByDate, dead
           );
         })}
       </div>
-      {evtLanes.map((lane, li) => (
-        <div key={`evt-${li}`} className="cal-lane">
-          {lane.map(({ item, cStart, cEnd, startsHere, endsHere }) => (
-            <EventBar key={item.id} item={item} cStart={cStart} cEnd={cEnd}
-              startsHere={startsHere} endsHere={endsHere}
-              kind="event" onDelete={onDeleteEvent} />
-          ))}
-        </div>
-      ))}
     </div>
   );
 }
 
 // ── Day view panel ─────────────────────────────────────────────────────
-function DayPanel({ date, logs, onClose }) {
+function DayPanel({ date, logs, events, deadlines, reminders,
+                   onToggleReminder, onDeleteReminder, onClose }) {
   const total = logs.reduce((s, l) => s + l.hours, 0);
-  const label = new Date(date + "T00:00:00").toLocaleDateString("en-GB", {
-    weekday: "long", day: "numeric", month: "long", year: "numeric",
-  });
+  const empty = !logs.length && !events.length && !deadlines.length && !reminders.length;
   return (
     <div className="overlay" onClick={onClose}>
       <div className="panel" onClick={e => e.stopPropagation()}>
         <div className="panel-header">
           <div>
-            <h2>{label}</h2>
+            <h2>{formatLong(date)}</h2>
             {total > 0 && (
               <p className="panel-subtitle">
                 {total % 1 === 0 ? total : total.toFixed(2)}h logged
@@ -189,23 +230,67 @@ function DayPanel({ date, logs, onClose }) {
           <button className="btn-icon" onClick={onClose}>✕</button>
         </div>
         <div className="day-panel-body">
-          {logs.length === 0 ? (
-            <p className="empty-state">Nothing logged for this day.</p>
-          ) : (
-            <div className="log-list">
-              {logs.map(log => (
-                <div key={log.id} className="log-entry">
-                  <div className="log-hours">
-                    {log.hours % 1 === 0 ? log.hours : log.hours.toFixed(2)}h
-                  </div>
-                  <div className="log-body">
-                    {log.description && <p className="log-desc">{log.description}</p>}
-                    {log.project_title && (
-                      <span className="log-project">{log.project_title}</span>
-                    )}
-                  </div>
+          {empty && <p className="empty-state">Nothing on this day.</p>}
+
+          {events.length > 0 && (
+            <div className="day-panel-section">
+              <div className="day-panel-section-title">Events</div>
+              {events.map(e => (
+                <div key={e.id} className="day-panel-row">
+                  <span className={`cal-legend-dot ${e.event_type === "vacation" ? "vacation" : "event"}`} />
+                  <span className="day-panel-row-text">{e.title}</span>
+                  <span className="day-panel-row-meta">{e.event_type}</span>
                 </div>
               ))}
+            </div>
+          )}
+
+          {deadlines.length > 0 && (
+            <div className="day-panel-section">
+              <div className="day-panel-section-title">Deadlines</div>
+              {deadlines.map(d => (
+                <div key={d.id} className="day-panel-row">
+                  <span className="cal-legend-dot deadline" />
+                  <span className="day-panel-row-text">{d.title}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {reminders.length > 0 && (
+            <div className="day-panel-section">
+              <div className="day-panel-section-title">Reminders</div>
+              {reminders.map(r => (
+                <div key={r.id} className="day-panel-row">
+                  <button className="btn-icon" onClick={() => onToggleReminder(r)}
+                    title={r.done ? "Mark not done" : "Mark done"}>
+                    {r.done ? "☑" : "☐"}
+                  </button>
+                  <span className={`day-panel-row-text${r.done ? " is-done" : ""}`}>{r.title}</span>
+                  <button className="btn-icon" onClick={() => onDeleteReminder(r.id)} title="Delete">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {logs.length > 0 && (
+            <div className="day-panel-section">
+              <div className="day-panel-section-title">Time logged</div>
+              <div className="log-list">
+                {logs.map(log => (
+                  <div key={log.id} className="log-entry">
+                    <div className="log-hours">
+                      {log.hours % 1 === 0 ? log.hours : log.hours.toFixed(2)}h
+                    </div>
+                    <div className="log-body">
+                      {log.description && <p className="log-desc">{log.description}</p>}
+                      {log.project_title && (
+                        <span className="log-project">{log.project_title}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -302,9 +387,10 @@ function NewReminderPanel({ defaultDate, onSave, onClose }) {
 
 // ── Main ───────────────────────────────────────────────────────────────
 export default function Calendar() {
-  const now = new Date();
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth());
+  const todayStr = today();
+  const [view, setView] = useState("month");       // "month" | "week"
+  const [anchor, setAnchor] = useState(todayStr);  // any day inside the shown range
+  const [allEvents, setAllEvents] = useState([]);
   const [vacationEvents, setVacationEvents] = useState([]);
   const [nonVacationEvents, setNonVacationEvents] = useState([]);
   const [logsByDate, setLogsByDate] = useState({});
@@ -312,10 +398,12 @@ export default function Calendar() {
   const [remindersByDate, setRemindersByDate] = useState({});
   const [showEventForm, setShowEventForm] = useState(false);
   const [showReminderForm, setShowReminderForm] = useState(false);
-  const [eventDate, setEventDate] = useState(today());
+  const [eventDate, setEventDate] = useState(todayStr);
   const [dayDate, setDayDate] = useState(null);
   const [dayLogs, setDayLogs] = useState([]);
-  const todayStr = today();
+
+  const year = parseInt(anchor.slice(0, 4), 10);
+  const month = parseInt(anchor.slice(5, 7), 10) - 1;
 
   useEffect(() => { loadAll(); }, []);
 
@@ -326,16 +414,14 @@ export default function Calendar() {
       query(`SELECT id, title, planned_end FROM projects WHERE planned_end IS NOT NULL`),
       query(`SELECT id, title, remind_on, done FROM reminders ORDER BY id`),
     ]);
+    setAllEvents(events);
     setVacationEvents(events.filter(e => e.event_type === "vacation"));
     setNonVacationEvents(events.filter(e => e.event_type !== "vacation"));
     const lbd = {};
     for (const l of logs) lbd[l.date] = l.total;
     setLogsByDate(lbd);
     const dbd = {};
-    for (const p of projects) {
-      if (!dbd[p.planned_end]) dbd[p.planned_end] = [];
-      dbd[p.planned_end].push(p);
-    }
+    for (const p of projects) (dbd[p.planned_end] ||= []).push(p);
     setDeadlinesByDate(dbd);
     const rbd = {};
     for (const r of reminders) (rbd[r.remind_on] ||= []).push(r);
@@ -370,10 +456,25 @@ export default function Calendar() {
     await loadAll();
   }
 
-  function prevMonth() { month === 0 ? (setYear(y => y - 1), setMonth(11)) : setMonth(m => m - 1); }
-  function nextMonth() { month === 11 ? (setYear(y => y + 1), setMonth(0)) : setMonth(m => m + 1); }
+  function step(dir) {
+    if (view === "week") { setAnchor(a => addDays(a, dir * 7)); return; }
+    const d = new Date(year, month + dir, 1);
+    setAnchor(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`);
+  }
 
-  const weeks = buildWeeks(year, month);
+  const weeks = view === "month"
+    ? buildMonthWeeks(year, month)
+    : [buildWeekDays(anchor)];
+
+  const label = view === "month"
+    ? `${MONTH_NAMES[month]} ${year}`
+    : (() => {
+        const days = buildWeekDays(anchor);
+        const a = new Date(days[0] + "T00:00:00");
+        const b = new Date(days[6] + "T00:00:00");
+        const opts = { day: "numeric", month: "short" };
+        return `${a.toLocaleDateString("en-GB", opts)} – ${b.toLocaleDateString("en-GB", opts)} ${b.getFullYear()}`;
+      })();
 
   return (
     <div className="page">
@@ -390,9 +491,19 @@ export default function Calendar() {
       </div>
 
       <div className="cal-nav">
-        <button className="btn-icon-lg" onClick={prevMonth}>‹</button>
-        <span className="cal-month-label">{MONTH_NAMES[month]} {year}</span>
-        <button className="btn-icon-lg" onClick={nextMonth}>›</button>
+        <button className="btn-icon-lg" onClick={() => step(-1)}>‹</button>
+        <span className="cal-month-label">{label}</span>
+        <button className="btn-icon-lg" onClick={() => step(1)}>›</button>
+        <button className="btn-ghost sm" onClick={() => setAnchor(todayStr)}>Today</button>
+        <div className="cal-view-toggle">
+          {["month", "week"].map(v => (
+            <button key={v}
+              className={`cal-view-btn${view === v ? " active" : ""}`}
+              onClick={() => setView(v)}>
+              {v === "month" ? "Month" : "Week"}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="cal-grid">
@@ -403,12 +514,14 @@ export default function Calendar() {
           <WeekRow
             key={wi}
             weekDays={weekDays}
+            monthIndex={view === "month" ? month : null}
             vacationEvents={vacationEvents}
             nonVacationEvents={nonVacationEvents}
             logsByDate={logsByDate}
             deadlinesByDate={deadlinesByDate}
             remindersByDate={remindersByDate}
             todayStr={todayStr}
+            expanded={view === "week"}
             onDayClick={handleDayClick}
             onDeleteEvent={deleteEvent}
             onToggleReminder={toggleReminder}
@@ -426,7 +539,16 @@ export default function Calendar() {
       </div>
 
       {dayDate && (
-        <DayPanel date={dayDate} logs={dayLogs} onClose={() => setDayDate(null)} />
+        <DayPanel
+          date={dayDate}
+          logs={dayLogs}
+          events={allEvents.filter(e => e.start <= dayDate && e.end >= dayDate)}
+          deadlines={deadlinesByDate[dayDate] ?? []}
+          reminders={remindersByDate[dayDate] ?? []}
+          onToggleReminder={toggleReminder}
+          onDeleteReminder={deleteReminder}
+          onClose={() => setDayDate(null)}
+        />
       )}
 
       {showEventForm && (
